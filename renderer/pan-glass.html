@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; cursor: grab; }
+    body.dragging { cursor: grabbing; }
+  </style>
+</head>
+<body>
+  <script>
+    // read the bridge at CALL time — binding it once at parse time races the preload
+    function act(a, d) {
+      if (window.wl && window.wl.canvasAction) window.wl.canvasAction(a, d);
+    }
+    let dragging = false, last = null;
+    window.addEventListener('DOMContentLoaded', () => {
+      document.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        dragging = true; last = { x: e.screenX, y: e.screenY };
+        document.body.classList.add('dragging');
+        e.preventDefault();
+      });
+      document.addEventListener('mousemove', (e) => {
+        if (!dragging || !last) return;
+        act('pan', { dx: e.screenX - last.x, dy: e.screenY - last.y });
+        last = { x: e.screenX, y: e.screenY };
+      });
+      document.addEventListener('mouseup', () => { dragging = false; last = null; document.body.classList.remove('dragging'); });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') act('panMode', false);
+        if (e.key === '+' || e.key === '=') act('in');
+        if (e.key === '-') act('out');
+        if (e.key === '0') act('fit');
+      });
+      document.addEventListener('contextmenu', (e) => e.preventDefault());
+    });
+  </script>
+</body>
+</html>

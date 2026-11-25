@@ -1,0 +1,326 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+    body { font-family: ui-sans-serif, -apple-system, 'Inter', system-ui, sans-serif; }
+    .bar {
+      height: 38px; box-sizing: border-box; margin: 0; display: flex; align-items: center; gap: 6px; padding: 0 10px;
+      border-bottom: 1px solid #1f1f23;
+      background: #0b0b0e;
+      position: relative; z-index: 2;
+    }
+    body.mac .bar { padding-left: 86px; } /* clear the traffic-light buttons */
+    body.home #add, body.home #a-new, body.home #a-history, body.home #changes,
+    body.home #sidebar, body.home #chat, body.home #sandbox { display: none; }
+    body.home #home { background: #27272a; border-color: #3f3f46; color: #fafafa; }
+    .act.on { background: #27272a; border-color: #3f3f46; color: #fafafa; }
+    .home-label { color: #a1a1aa; font-size: 11.5px; font-weight: 600; padding: 0 4px; }
+    #backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 1; }
+    #tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+    #tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+      background: #18181b; border: 1px solid #27272a;
+      color: #a1a1aa; border-radius: 8px; font-size: 11.5px; padding: 4px 10px;
+      max-width: 180px; white-space: nowrap; flex: 0 0 auto;
+    }
+    .tab .route { overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
+    .tab.on { background: #27272a; border-color: #3f3f46; color: #fafafa; }
+    .tab:hover { background: #232326; }
+    .tab .x { background: none; border: 0; color: #71717a; font-size: 12px; cursor: pointer; padding: 0; line-height: 1; font-family: inherit; }
+    .tab .x:hover { color: #f87171; }
+    .add {
+      background: none; border: 1px dashed #3f3f46; color: #71717a; flex: 0 0 auto;
+      border-radius: 8px; font-size: 14px; width: 26px; height: 26px; cursor: pointer; line-height: 1;
+    }
+    .add:hover { color: #fafafa; border-color: #52525b; }
+    .act {
+      flex: 0 0 auto; background: #18181b; border: 1px solid #27272a; color: #a1a1aa;
+      border-radius: 8px; font-size: 12px; width: 26px; height: 26px; cursor: pointer; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .act:hover { color: #fafafa; border-color: #3f3f46; }
+    .changes {
+      flex: 0 0 auto; background: #18181b; border: 1px solid #27272a; color: #a1a1aa;
+      border-radius: 8px; font-size: 10.5px; padding: 5px 10px; cursor: pointer;
+      font-family: ui-monospace, Menlo, monospace; white-space: nowrap;
+    }
+    .changes:hover { color: #fafafa; border-color: #3f3f46; }
+    .changes .n { color: #fafafa; font-weight: 600; }
+    .sandbox-chip { color: #9db4d8; border-color: rgba(110,168,255,0.35); background: rgba(110,168,255,0.07); }
+    .sandbox-chip:hover { color: #dfe8ff; border-color: rgba(110,168,255,0.55); }
+    .menu {
+      position: absolute; top: 40px; min-width: 230px; max-width: 340px; max-height: 320px; overflow-y: auto;
+      background: #0f0f12; border: 1px solid #27272a; border-radius: 10px;
+      box-shadow: 0 14px 36px rgba(0,0,0,0.55); padding: 6px; z-index: 5;
+    }
+    #menu { left: 12px; }
+    #changes-menu { right: 12px; }
+    #sandbox-menu { right: 12px; }
+    .menu button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+      background: none; border: 0; color: #d4d4d8; font-family: ui-monospace, Menlo, monospace;
+      font-size: 11px; padding: 6px 9px; border-radius: 7px; cursor: pointer; }
+    .menu button:hover { background: #18181b; }
+    .menu .st { font-weight: 700; flex: 0 0 12px; text-align: center; }
+    .menu .st.M { color: #fafafa; } .menu .st.A, .menu .st.U { color: #5ce1c7; } .menu .st.D { color: #f87171; }
+    .menu .p { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .menu .d { color: #71717a; font-size: 9.5px; }
+    .menu .sep { height: 1px; background: #1f1f23; margin: 4px 6px; }
+    .menu .lbl { color: #71717a; font-size: 10px; padding: 4px 9px 2px; text-transform: uppercase; letter-spacing: .06em; font-family: -apple-system, system-ui, sans-serif; }
+    .menu .none { color: #71717a; font-size: 11px; padding: 6px 9px; }
+    .commit { display: flex; gap: 6px; padding: 8px 6px 4px; }
+    .commit input { flex: 1; min-width: 0; background: #0c0c0f; border: 1px solid #27272a; border-radius: 7px;
+      color: #f4f4f5; font-size: 11px; padding: 6px 9px; outline: none; font-family: inherit; }
+    .commit input:focus { border-color: #52525b; }
+    .commit button { flex: 0 0 auto; background: #fafafa; color: #09090b; border: 0; border-radius: 7px;
+      font-size: 11px; font-weight: 600; padding: 6px 12px; cursor: pointer; font-family: inherit; }
+    .commit button:disabled { opacity: 0.5; cursor: default; }
+    .commit-status { color: #71717a; font-size: 10.5px; padding: 2px 9px 6px; font-family: ui-monospace, Menlo, monospace; word-break: break-word; }
+    .commit-status.err { color: #f87171; }
+    .commit-status.ok { color: #5ce1c7; }
+  </style>
+</head>
+<body>
+  <div id="backdrop" hidden></div>
+  <div class="bar">
+    <button class="act" id="home" title="Home — recent projects">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>
+    </button>
+    <button class="act" id="sidebar" title="Toggle sidebar (⌘B)">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16M13 10l-2 2 2 2"/></svg>
+    </button>
+    <button class="act" id="chat" title="Toggle chat (⌘⇧J)">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></svg>
+    </button>
+    <button class="add" id="add" title="Open a page as a new tab">+</button>
+    <div id="tabs"></div>
+    <button class="act" id="a-new" title="New chat">＋</button>
+    <button class="act" id="a-history" title="Past conversations">⏱</button>
+    <button class="act" id="a-settings" title="Settings (⌘,)">⚙</button>
+    <button class="changes" id="sandbox" title="Sandbox — your project folder is untouched" hidden>⧉ sandbox</button>
+    <button class="changes" id="changes" title="Working-tree changes">⎇ …</button>
+  </div>
+  <div class="menu" id="menu" hidden></div>
+  <div class="menu" id="changes-menu" hidden></div>
+  <div class="menu" id="sandbox-menu" hidden></div>
+  <script>
+    if (navigator.userAgent.includes('Mac')) document.body.classList.add('mac');
+    function act(a, d) { if (window.wl && window.wl.canvasAction) window.wl.canvasAction(a, d); }
+    window.addEventListener('DOMContentLoaded', () => {
+      const tabsEl = document.getElementById('tabs');
+      const menu = document.getElementById('menu');
+      const changesMenu = document.getElementById('changes-menu');
+      const changesBtn = document.getElementById('changes');
+      const sandboxBtn = document.getElementById('sandbox');
+      const sandboxMenu = document.getElementById('sandbox-menu');
+      let state = { tabs: ['/'], active: 0, home: false, sidebar: true, chat: true, sandbox: null };
+      const sidebarBtn = document.getElementById('sidebar');
+      const chatBtn = document.getElementById('chat');
+      const render = () => {
+        document.body.classList.toggle('home', !!state.home);
+        sidebarBtn.classList.toggle('on', state.sidebar !== false);
+        chatBtn.classList.toggle('on', state.chat !== false);
+        sandboxBtn.hidden = !state.sandbox;
+        if (state.sandbox) sandboxBtn.textContent = '⧉ ' + (state.sandbox.mode === 'copy' ? 'copy' : 'sandbox');
+        tabsEl.innerHTML = '';
+        if (state.home) {
+          const label = document.createElement('span');
+          label.className = 'home-label';
+          label.textContent = 'Recent projects';
+          tabsEl.appendChild(label);
+          return;
+        }
+        state.tabs.forEach((route, i) => {
+          const b = document.createElement('button');
+          b.className = 'tab' + (i === state.active ? ' on' : '');
+          const r = document.createElement('span');
+          r.className = 'route';
+          r.textContent = route;
+          b.appendChild(r);
+          if (state.tabs.length > 1 && i > 0) {
+            const x = document.createElement('button');
+            x.className = 'x';
+            x.textContent = '×';
+            x.title = 'Close tab';
+            x.onclick = (e) => { e.stopPropagation(); act('closeTab', i); };
+            b.appendChild(x);
+          }
+          b.onclick = () => act('selectTab', i);
+          tabsEl.appendChild(b);
+        });
+      };
+      if (window.wl && window.wl.onTabsState) window.wl.onTabsState((s) => { state = s; closeMenus(); render(); });
+      document.getElementById('home').onclick = () => act('home');
+      sidebarBtn.onclick = () => act('toggleSidebar');
+      chatBtn.onclick = () => act('toggleChat');
+      document.getElementById('a-new').onclick = () => act('newChat');
+      document.getElementById('a-history').onclick = () => act('history');
+      document.getElementById('a-settings').onclick = () => act('settings');
+
+      const currentRoute = () => state.tabs[state.active] || '/';
+      const backdrop = document.getElementById('backdrop');
+      const setMenu = (open) => { act('menu', open); backdrop.hidden = !open; }; // main grows the bar so dropdowns aren't clipped
+      const closeMenus = () => { menu.hidden = true; changesMenu.hidden = true; sandboxMenu.hidden = true; setMenu(false); };
+      document.getElementById('add').onclick = async (e) => {
+        e.stopPropagation();
+        if (!menu.hidden) { closeMenus(); return; } // toggle off — must also shrink the bar
+        changesMenu.hidden = true;
+        menu.innerHTML = '';
+        const mk = (label, fn) => {
+          const b = document.createElement('button');
+          b.textContent = label;
+          b.onclick = () => { closeMenus(); fn(); };
+          menu.appendChild(b);
+        };
+        mk('New empty tab · /', () => act('openTab', '/'));
+        mk('New tab from current · ' + currentRoute(), () => act('openTabForce', currentRoute()));
+        const list = (window.wl && window.wl.pagesList) ? await window.wl.pagesList().catch(() => []) : [];
+        if (list.length) {
+          const sep = document.createElement('div'); sep.className = 'sep'; menu.appendChild(sep);
+          const lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = 'Pages'; menu.appendChild(lbl);
+          for (const p of list.slice(0, 30)) mk(p.route, () => act('openTab', p.route));
+        } else {
+          const none = document.createElement('div'); none.className = 'none'; none.textContent = 'No routes found yet.'; menu.appendChild(none);
+        }
+        menu.hidden = false;
+        setMenu(true);
+      };
+
+      async function refreshChanges() {
+        const wl = window.wl || {};
+        if (!wl.gitStatus) return;
+        const r = await wl.gitStatus().catch(() => null);
+        if (!r || !r.ok) { changesBtn.textContent = '⎇ —'; changesBtn.title = (r && r.error) || 'no git repository'; return; }
+        const n = r.files.length;
+        const br = /^withlook\/sandbox-/.test(r.branch || '') ? 'sandbox' : r.branch;
+        changesBtn.innerHTML = n ? '⎇ ' + br + ' · <span class="n">' + n + '</span> changed' : '⎇ ' + br + ' · clean';
+        changesBtn.title = 'Working-tree changes';
+        changesMenu.innerHTML = '';
+        if (!n) {
+          changesMenu.innerHTML = '<div class="none">Working tree clean.</div>';
+        } else {
+          for (const f of r.files.slice(0, 40)) {
+            const b = document.createElement('button');
+            const st = f.status === '?' ? 'U' : f.status[0] === 'R' ? 'M' : (f.status.trim()[0] || 'M');
+            b.innerHTML = '<span class="st ' + st + '">' + st + '</span><span class="p"></span>' +
+              (f.adds != null ? '<span class="d">+' + f.adds + ' −' + f.dels + '</span>' : '');
+            b.querySelector('.p').textContent = f.path;
+            b.onclick = () => { closeMenus(); if (window.wl.openSource) window.wl.openSource({ file: f.abs, line: 1 }); };
+            changesMenu.appendChild(b);
+          }
+        }
+        // commit box — commit every working-tree change locally
+        const sep = document.createElement('div'); sep.className = 'sep'; changesMenu.appendChild(sep);
+        const row = document.createElement('div'); row.className = 'commit';
+        const input = document.createElement('input');
+        input.placeholder = 'commit message';
+        input.spellcheck = false;
+        const btn = document.createElement('button');
+        btn.textContent = 'Commit all';
+        btn.disabled = !n;
+        const statusEl = document.createElement('div'); statusEl.className = 'commit-status';
+        const doCommit = async () => {
+          const msg = input.value.trim();
+          if (!msg) { statusEl.className = 'commit-status err'; statusEl.textContent = 'Write a commit message first.'; return; }
+          btn.disabled = true;
+          statusEl.className = 'commit-status';
+          statusEl.textContent = 'committing…';
+          const cr = await (window.wl.gitCommit ? window.wl.gitCommit(msg) : Promise.resolve({ ok: false, error: 'unavailable' })).catch((e) => ({ ok: false, error: e.message }));
+          btn.disabled = false;
+          if (cr.ok) {
+            statusEl.className = 'commit-status ok';
+            statusEl.textContent = '✓ ' + cr.output;
+            input.value = '';
+            setTimeout(refreshChanges, 400);
+          } else {
+            statusEl.className = 'commit-status err';
+            statusEl.textContent = cr.error || 'commit failed';
+          }
+        };
+        btn.onclick = doCommit;
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doCommit(); });
+        row.append(input, btn);
+        changesMenu.append(row, statusEl);
+      }
+      changesBtn.onclick = (e) => {
+        e.stopPropagation();
+        const show = changesMenu.hidden;
+        closeMenus();
+        if (show) { refreshChanges(); changesMenu.hidden = false; setMenu(true); }
+      };
+
+      async function refreshSandbox() {
+        const wl = window.wl || {};
+        const st = await (wl.sandboxStatus ? wl.sandboxStatus() : Promise.resolve({ active: false })).catch(() => ({ active: false }));
+        sandboxMenu.innerHTML = '';
+        const lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = 'Sandbox'; sandboxMenu.appendChild(lbl);
+        if (!st.active) {
+          const none = document.createElement('div'); none.className = 'none'; none.textContent = 'No sandbox is active.'; sandboxMenu.appendChild(none);
+          return;
+        }
+        const note = document.createElement('div'); note.className = 'none';
+        note.textContent = 'Your project folder is untouched.'; sandboxMenu.appendChild(note);
+        const pathEl = document.createElement('div'); pathEl.className = 'none';
+        pathEl.style.fontFamily = 'ui-monospace, Menlo, monospace';
+        pathEl.style.overflow = 'hidden'; pathEl.style.textOverflow = 'ellipsis';
+        pathEl.textContent = st.path || ''; pathEl.title = st.path || ''; sandboxMenu.appendChild(pathEl);
+        const status = document.createElement('div'); status.className = 'commit-status';
+        status.textContent = st.dirty ? 'unapplied changes' : 'no changes yet';
+        const apply = document.createElement('button'); apply.textContent = 'Apply to project';
+        apply.disabled = !st.dirty;
+        apply.onclick = async () => {
+          apply.disabled = true;
+          status.className = 'commit-status'; status.textContent = 'applying…';
+          const r = await (wl.sandboxApply ? wl.sandboxApply() : Promise.resolve({ ok: false, error: 'unavailable' })).catch((e) => ({ ok: false, error: e.message }));
+          if (r.ok) {
+            status.className = 'commit-status ok';
+            status.textContent = '✓ applied ' + (r.files || 0) + ' file' + (r.files === 1 ? '' : 's') +
+              (r.conflicts && r.conflicts.length ? ' · ' + r.conflicts.length + ' conflict(s)' : '');
+            refreshChanges();
+          } else {
+            status.className = 'commit-status err';
+            status.textContent = r.error || 'apply failed';
+            apply.disabled = false;
+          }
+        };
+        sandboxMenu.appendChild(apply);
+        let armed = false;
+        const discard = document.createElement('button'); discard.textContent = 'Discard sandbox';
+        discard.onclick = async () => {
+          if (!armed) {
+            armed = true; discard.textContent = 'Click again to discard';
+            setTimeout(() => { armed = false; discard.textContent = 'Discard sandbox'; }, 2500);
+            return;
+          }
+          discard.disabled = true;
+          status.className = 'commit-status'; status.textContent = 'discarding…';
+          const r = await (wl.sandboxDiscard ? wl.sandboxDiscard() : Promise.resolve({ ok: false, error: 'unavailable' })).catch((e) => ({ ok: false, error: e.message }));
+          if (r.ok) closeMenus();
+          else { status.className = 'commit-status err'; status.textContent = r.error || 'discard failed'; discard.disabled = false; }
+        };
+        sandboxMenu.appendChild(discard);
+        sandboxMenu.appendChild(status);
+      }
+      sandboxBtn.onclick = (e) => {
+        e.stopPropagation();
+        const show = sandboxMenu.hidden;
+        closeMenus();
+        if (show) { refreshSandbox(); sandboxMenu.hidden = false; setMenu(true); }
+      };
+      if (window.wl && window.wl.onGitRefresh) window.wl.onGitRefresh(refreshChanges);
+      if (window.wl && window.wl.onDevStatus) window.wl.onDevStatus((d) => { if (d.state === 'running') refreshChanges(); });
+      setInterval(refreshChanges, 15000);
+      refreshChanges();
+      document.addEventListener('click', (e) => {
+        const outsideRoute = !menu.hidden && !menu.contains(e.target) && e.target.id !== 'add';
+        const outsideChanges = !changesMenu.hidden && !changesMenu.contains(e.target) && e.target !== changesBtn;
+        const outsideSandbox = !sandboxMenu.hidden && !sandboxMenu.contains(e.target) && e.target !== sandboxBtn;
+        if (outsideRoute || outsideChanges || outsideSandbox) closeMenus(); // always shrink the bar back
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
+    });
+  </script>
+</body>
+</html>

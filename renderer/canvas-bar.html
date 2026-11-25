@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+    body { display: flex; align-items: center; gap: 4px; padding: 0 6px;
+      font-family: -apple-system, system-ui, sans-serif; -webkit-app-region: no-drag; }
+    .bar { display: flex; align-items: center; gap: 4px; background: rgba(9,9,11,0.94);
+      border: 1px solid #27272a; border-radius: 11px; padding: 4px 6px;
+      box-shadow: 0 6px 22px rgba(0,0,0,0.4); }
+    button { background: #18181b; border: 1px solid #27272a;
+      color: #d4d4d8; border-radius: 7px; width: 26px; height: 26px; font-size: 14px;
+      line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    button:hover { background: #27272a; }
+    #zoom { width: 46px; font-size: 11px; font-weight: 600; }
+    #hand.on { background: rgba(92,225,199,0.18); border-color: rgba(92,225,199,0.5); color: #5ce1c7; }
+    #multi.on { background: rgba(92,225,199,0.18); border-color: rgba(92,225,199,0.5); color: #5ce1c7; }
+    .sep { width: 1px; height: 18px; background: rgba(255,255,255,0.09); margin: 0 2px; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <button id="out" title="Zoom out (⌘−)">−</button>
+    <button id="zoom" title="Actual size (⌘0)">100%</button>
+    <button id="in" title="Zoom in (⌘+)">+</button>
+    <div class="sep"></div>
+    <button id="hand" title="Pan the canvas (drag)">✋</button>
+    <button id="multi" title="Show all tabs side by side">▦</button>
+    <button id="float-btn" title="Toggle float chat (⌘F)">⤢</button>
+    <div class="sep"></div>
+    <button id="restart" hidden title="Restart the dev server">⟳</button>
+    <button id="stop" hidden title="Stop the dev server">⏹</button>
+    <div class="sep" id="frames-sep" hidden></div>
+    <button id="frames" hidden title="Close the extra canvas tabs">1×</button>
+  </div>
+  <script>
+    // read the bridge at CALL time — binding it once at parse time races the preload
+    function act(a, d) {
+      if (window.wl && window.wl.canvasAction) window.wl.canvasAction(a, d);
+    }
+    let panMode = false;
+    window.addEventListener('DOMContentLoaded', () => {
+      const g = (i) => document.getElementById(i);
+      g('in').onclick = () => act('in');
+      g('out').onclick = () => act('out');
+      g('zoom').onclick = () => act('fit');
+      g('hand').onclick = () => act('panMode', !panMode);
+      g('multi').onclick = () => act('multiCanvas');
+      g('float-btn').onclick = () => act('toggleFloat');
+      g('frames').onclick = () => act('clearFrames');
+      g('stop').onclick = () => act('stopDev');
+      g('restart').onclick = () => act('restartDev');
+      if (window.wl && window.wl.onCanvasState) window.wl.onCanvasState((s) => {
+        g('zoom').textContent = Math.round(s.zoom * 100) + '%';
+        panMode = !!s.panMode;
+        g('hand').classList.toggle('on', panMode);
+        const n = s.frames || 1;
+        const fb = g('frames');
+        fb.hidden = n <= 1;
+        fb.textContent = n > 1 ? n + '×' : '';
+        fb.title = n > 1 ? 'Close the ' + (n - 1) + ' extra canvas tab' + (n > 2 ? 's' : '') : '';
+        g('frames-sep').hidden = n <= 1;
+        const dev = s.dev || 'idle';
+        g('stop').hidden = !(dev === 'running' || dev === 'starting');
+        g('restart').hidden = dev !== 'running';
+        g('multi').classList.toggle('on', !!s.multi);
+      });
+      window.__barReady = true;
+    });
+  </script>
+</body>
+</html>

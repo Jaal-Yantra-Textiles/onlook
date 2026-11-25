@@ -1,0 +1,169 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #09090b; color: #d4d4d8; overflow: hidden;
+      font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; font-size: 12px;
+      display: flex; flex-direction: column; -webkit-font-smoothing: antialiased;
+    }
+    .head { padding: 16px 14px 10px; border-bottom: 1px solid #27272a; }
+    .proj { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; color: #eef3fb; }
+    .dot { width: 8px; height: 8px; border-radius: 3px; background: linear-gradient(135deg,#6ea8ff,#9d7bff); }
+    .repo { margin-top: 4px; font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: #5a6580;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .branch { margin-top: 3px; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: #5ce1c7;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sb-note { margin-top: 5px; font-size: 9.5px; color: #9db4d8; }
+    .scroller { flex: 1; overflow-y: auto; padding: 10px 10px 14px; }
+    .scroller::-webkit-scrollbar { width: 7px; }
+    .scroller::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+    .sec { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 6px; }
+    .sec .label { color: #5a6580; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .sec button { background: none; border: 0; color: #5a6580; font-size: 11px; cursor: pointer; padding: 0; }
+    .sec button:hover { color: #9db4d8; }
+    .file { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; cursor: pointer;
+      background: #0f0f12; border: 1px solid #27272a; border-radius: 7px;
+      padding: 5px 8px; margin-bottom: 4px; color: #c7d3e8; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
+    .file:hover { border-color: rgba(110,168,255,0.45); background: rgba(110,168,255,0.07); }
+    .file .st { flex: 0 0 14px; text-align: center; font-weight: 700; }
+    .st.M { color: #6ea8ff; } .st.A, .st.U, .st["?" ] { color: #5ce1c7; } .st.D { color: #ff9c9c; }
+    .file .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
+    .file .num { color: #5a6580; font-size: 9.5px; white-space: nowrap; }
+    .pagerow { display: flex; align-items: center; gap: 2px; }
+    .pagerow .chat { flex: 1; text-align: left; }
+    /* Pages get their own bounded scroller so they never push Recent chats off-screen */
+    .pages-box {
+      max-height: 238px; overflow-y: auto; padding: 3px;
+      background: #0b0b0e; border: 1px solid #1f1f23; border-radius: 9px;
+    }
+    .pages-box::-webkit-scrollbar { width: 7px; }
+    .pages-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.13); border-radius: 4px; }
+    .pages-box::-webkit-scrollbar-track { background: transparent; }
+    .pages-box .empty { padding: 8px; }
+    .pgadd { background: none; border: 0; color: #4d566b; font-size: 15px; cursor: pointer;
+      padding: 0 7px; line-height: 1; font-family: inherit; }
+    .pgadd:hover { color: #5ce1c7; }
+    .num .a { color: #5ce1c7; } .num .d { color: #ff9c9c; }
+    .chat { display: block; width: 100%; text-align: left; cursor: pointer; background: none; border: 0;
+      color: #9aa7bd; font-size: 11.5px; padding: 5px 8px; border-radius: 7px; font-family: inherit; }
+    .chat:hover { background: #18181b; color: #f4f4f5; }
+    .chat.on { background: #27272a; color: #f4f4f5; }
+    .empty { color: #4d566b; font-size: 11px; padding: 4px 8px; }
+    .foot { border-top: 1px solid #27272a; padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
+    .srv { flex: 1; color: #5a6580; font-size: 10.5px; }
+    .srv b { color: #9db4d8; font-weight: 600; }
+    .stop { background: rgba(255,90,90,0.1); color: #ff9c9c; border: 1px solid rgba(255,90,90,0.3);
+      border-radius: 7px; font-size: 10.5px; padding: 4px 10px; cursor: pointer; }
+    .stop:hover { background: rgba(255,90,90,0.18); }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <div class="proj"><span class="dot"></span><span id="proj">project</span></div>
+    <div class="repo" id="repo" hidden></div>
+    <div class="branch" id="branch">—</div>
+    <div class="sb-note" id="sb-note" hidden>⧉ sandbox · folder untouched</div>
+  </div>
+  <div class="scroller">
+    <div class="sec"><span class="label">Pages</span><button id="pages-refresh" title="Rescan routes">↻</button></div>
+    <div id="pages" class="pages-box"><div class="empty">—</div></div>
+    <div class="sec"><span class="label">Recent chats</span></div>
+    <div id="chats"><div class="empty">—</div></div>
+  </div>
+  <div class="foot">
+    <div class="srv" id="srv">server <b>idle</b></div>
+    <button class="stop" id="restart" title="Restart the dev server">⟳</button>
+    <button class="stop" id="stop">stop</button>
+  </div>
+  <script>
+    if (navigator.userAgent.includes('Mac')) document.body.classList.add('mac');
+    const WL = () => window.wl || {}; // read the bridge at CALL time — parse-time binding races the preload
+    const $ = (i) => document.getElementById(i);
+    let folder = null;
+    let activeRoute = '/';
+
+    function markActive() {
+      document.querySelectorAll('#pages .chat').forEach((b) => b.classList.toggle('on', b.dataset.route === activeRoute));
+    }
+
+    async function refreshPages() {
+      if (!WL().pagesList) return;
+      const list = await WL().pagesList().catch(() => []);
+      const box = $('pages');
+      box.innerHTML = '';
+      if (!list.length) { box.innerHTML = '<div class="empty">No routes found.</div>'; return; }
+      for (const p of list.slice(0, 30)) {
+        const row = document.createElement('div');
+        row.className = 'pagerow';
+        const b = document.createElement('button');
+        b.className = 'chat';
+        b.textContent = p.route;
+        b.title = p.file;
+        b.dataset.route = p.route;
+        b.onclick = () => { activeRoute = p.route; markActive(); WL().sidebarUi && WL().sidebarUi('navigate', p.route); };
+        const add = document.createElement('button');
+        add.className = 'pgadd';
+        add.textContent = '+';
+        add.title = 'Open ' + p.route + ' in a new tab';
+        add.onclick = () => WL().sidebarUi && WL().sidebarUi('addFrame', p.route);
+        row.append(b, add);
+        box.appendChild(row);
+      }
+      markActive();
+    }
+    async function refreshGit() {
+      if (!WL().gitStatus) return;
+      const r = await WL().gitStatus().catch(() => null);
+      const repo = $('repo');
+      if (!r || !r.ok) { repo.hidden = true; $('branch').textContent = '—'; return; }
+      if (r.repo) { repo.hidden = false; repo.textContent = r.repo; repo.title = r.remote || r.repo; }
+      else repo.hidden = true;
+      const branch = /^withlook\/sandbox-/.test(r.branch || '') ? 'sandbox' : r.branch;
+      $('branch').textContent = branch ? '⎇ ' + branch : '';
+      $('branch').title = r.branch || '';
+    }
+
+    async function refreshChats() {
+      const list = await WL().sessionsList(folder).catch(() => []);
+      $('chats').innerHTML = '';
+      if (!list.length) { $('chats').innerHTML = '<div class="empty">No conversations yet.</div>'; return; }
+      for (const s of list.slice(0, 12)) {
+        const b = document.createElement('button');
+        b.className = 'chat';
+        b.textContent = (s.title || 'Untitled chat').slice(0, 34);
+        b.title = (s.project || '') + ' · ' + new Date(s.updated_at).toLocaleString();
+        b.onclick = () => WL().sidebarUi && WL().sidebarUi('loadSession', s.id);
+        $('chats').appendChild(b);
+      }
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+      const wl = WL();
+      $('pages-refresh').onclick = refreshPages;
+      $('stop').onclick = () => WL().stopDev && WL().stopDev();
+      $('restart').onclick = () => WL().restartDev && WL().restartDev();
+      if (wl.onGitRefresh) wl.onGitRefresh(() => { refreshPages(); refreshGit(); });
+      if (wl.onPageNav) wl.onPageNav((info) => {
+        try { activeRoute = new URL(info.url).pathname || '/'; } catch {}
+        markActive();
+      });
+      const applyDev = (d) => {
+        if (!d) return;
+        folder = d.folder || folder;
+        const project = d.projectFolder || d.folder;
+        $('proj').textContent = project ? String(project).split(/[\\/]/).filter(Boolean).pop() : 'project';
+        $('srv').innerHTML = 'server <b>' + d.state + '</b>' + (d.port ? ' · :' + d.port : '');
+        $('sb-note').hidden = !d.sandbox;
+        if (d.sandbox) $('sb-note').title = d.sandbox.projectPath || d.sandbox.root || '';
+        if (d.state === 'running') { refreshChats(); refreshPages(); refreshGit(); }
+      };
+      if (wl.onDevStatus) wl.onDevStatus(applyDev);
+      // the sidebar can mount after the project is already running — hydrate from the current status
+      if (wl.devStatus) wl.devStatus().then(applyDev).catch(() => {});
+      refreshChats(); refreshPages(); refreshGit();
+    });
+  </script>
+</body>
+</html>

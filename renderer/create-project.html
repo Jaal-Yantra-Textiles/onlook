@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>New project · withlook</title>
+  <style>
+    :root {
+      --bg: #09090b; --card: #0f0f12; --border: #27272a; --fg: #f4f4f5; --muted: #a1a1aa; --dim: #71717a;
+      --accent: #fafafa; --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(900px 480px at 30% -10%, #17171b, var(--bg) 60%);
+      color: var(--fg); font-family: ui-sans-serif, -apple-system, 'Inter', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .c { width: 460px; max-width: 90vw; }
+    .brand { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 24px; }
+    .dot { width: 28px; height: 28px; border-radius: 8px;
+      background: conic-gradient(from 210deg, #6ea8ff, #9d7bff, #5ce1c7, #6ea8ff);
+      box-shadow: 0 8px 28px rgba(110,168,255,0.35); }
+    h1 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; margin: 0; }
+    button, input { font-family: inherit; border-radius: var(--radius); font-size: 13px; }
+    .loc { display: block; width: 100%; padding: 11px 14px; margin-bottom: 10px; cursor: pointer;
+      background: transparent; color: var(--muted); border: 1px solid var(--border); text-align: left;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .loc:hover { background: #141417; color: var(--fg); }
+    input { width: 100%; padding: 11px 14px; margin-bottom: 16px; background: #0c0c0f;
+      border: 1px solid var(--border); color: var(--fg); outline: none; }
+    input:focus { border-color: #52525b; box-shadow: 0 0 0 3px rgba(250,250,250,0.06); }
+    .go { width: 100%; padding: 11px 14px; background: var(--accent); color: #09090b; border: 1px solid var(--accent);
+      font-weight: 600; cursor: pointer; }
+    .go:hover { background: #e4e4e7; }
+    .go:disabled { opacity: 0.5; cursor: default; }
+    .stop { display: block; margin: 12px auto 0; padding: 8px 20px; background: transparent; cursor: pointer;
+      color: #f87171; border: 1px solid #3f1d1d; font-weight: 550; }
+    .stop:hover { background: #1a1011; }
+    .status { min-height: 20px; margin-top: 16px; font-size: 12px; color: var(--muted); text-align: center; }
+    .status.err { color: #f87171; }
+    details { margin-top: 14px; text-align: left; }
+    summary { cursor: pointer; font-size: 11px; color: #52525b; }
+    pre { max-height: 180px; overflow-y: auto; font-size: 10px; line-height: 1.5; color: var(--muted);
+      background: #0c0c0f; border: 1px solid var(--border); border-radius: 8px; padding: 10px; white-space: pre-wrap; }
+    .spinner { display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid rgba(250,250,250,0.15); border-top-color: #fafafa; margin-right: 7px;
+      vertical-align: -2px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="c">
+    <div class="brand"><div class="dot"></div><h1>New Next.js project</h1></div>
+    <button class="loc" id="loc">1 · Choose where to create it…</button>
+    <input id="name" placeholder="2 · Project name" spellcheck="false" autocomplete="off" />
+    <button class="go" id="go">Create project</button>
+    <button class="stop" id="stop" hidden>Stop</button>
+    <div class="status" id="status"></div>
+    <details id="logs-box" hidden><summary>scaffold output</summary><pre id="logs"></pre></details>
+  </div>
+  <script>
+    function WL() { return window.withlook || {}; }
+    window.addEventListener('DOMContentLoaded', () => {
+      const loc = document.getElementById('loc'), name = document.getElementById('name'),
+        go = document.getElementById('go'), status = document.getElementById('status'),
+        logs = document.getElementById('logs'), logsBox = document.getElementById('logs-box'),
+        stop = document.getElementById('stop');
+      let parent = null, busy = false;
+      loc.addEventListener('click', async () => {
+        if (busy) return;
+        const p = await (WL().pickCreateLocation ? WL().pickCreateLocation() : null);
+        if (p) { parent = p; loc.textContent = '1 · ' + p; }
+      });
+      const setBusy = (b) => { busy = b; go.disabled = b; loc.disabled = b; name.disabled = b; stop.hidden = !b; };
+      stop.addEventListener('click', async () => {
+        if (!busy) return;
+        stop.disabled = true;
+        status.className = 'status';
+        status.innerHTML = '<span class="spinner"></span>Cancelling…';
+        if (WL().cancelCreate) await WL().cancelCreate();
+      });
+      go.addEventListener('click', async () => {
+        if (busy || !WL().submitCreate) return;
+        if (!parent) { status.className = 'status err'; status.textContent = 'Choose a location first.'; return; }
+        if (!name.value.trim()) { status.className = 'status err'; status.textContent = 'Enter a project name.'; return; }
+        setBusy(true);
+        status.className = 'status';
+        status.innerHTML = '<span class="spinner"></span>Scaffolding with create-next-app…';
+        const r = await WL().submitCreate({ parent, name: name.value.trim() });
+        if (!r.ok) {
+          setBusy(false);
+          stop.disabled = false;
+          status.className = 'status err';
+          status.textContent = r.error || 'Failed — check the output below.';
+        } else {
+          status.textContent = 'Created ✓ — opening the dashboard…';
+        }
+      });
+      name.addEventListener('keydown', (e) => { if (e.key === 'Enter') go.click(); });
+      if (WL().onCreateStatus) WL().onCreateStatus((s) => {
+        if (s.phase === 'error') { setBusy(false); status.className = 'status err'; status.textContent = s.error || 'failed'; }
+        else if (s.phase === 'cancelled') { setBusy(false); stop.disabled = false; status.className = 'status'; status.textContent = 'Cancelled.'; }
+        else if (s.phase === 'created') { setBusy(false); stop.hidden = true; status.className = 'status'; status.textContent = 'Created ✓ — opening the dashboard…'; }
+        else if (s.phase === 'starting') status.innerHTML = '<span class="spinner"></span>Starting dev server…';
+      });
+      if (WL().onCreateLog) WL().onCreateLog((l) => { logsBox.hidden = false; logs.textContent += l + '\n'; logs.scrollTop = logs.scrollHeight; });
+    });
+  </script>
+</body>
+</html>

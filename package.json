@@ -1,0 +1,45 @@
+{
+  "name": "withlook",
+  "version": "0.1.0",
+  "description": "Preview your local Next.js app, pick elements on the page, and chat with an LLM about them.",
+  "main": "main/main.js",
+  "author": "withlook",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "icon": "electron tools/icon.js",
+    "build": "electron-builder --mac --publish never",
+    "build:dir": "electron-builder --dir"
+  },
+  "build": {
+    "appId": "ai.withlook.app",
+    "productName": "withlook",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "identity": null,
+      "target": ["dmg", "zip"]
+    },
+    "dmg": {
+      "title": "withlook"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  }
+}
