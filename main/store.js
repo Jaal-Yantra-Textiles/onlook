@@ -97,6 +97,23 @@ class MemoryStore {
     if (this.mode === 'postgres') return this.q('SELECT * FROM withlook.projects ORDER BY last_opened_at DESC LIMIT 20');
     return [...this.data.projects].sort((a, b) => b.last_opened_at - a.last_opened_at).slice(0, 20);
   }
+  async removeProject(folder) {
+    if (this.mode === 'postgres') {
+      const p = (await this.q('SELECT id FROM withlook.projects WHERE folder = $1', [folder]))[0];
+      if (!p) return false;
+      await this.q('DELETE FROM withlook.sessions WHERE project_id = $1', [p.id]); // messages cascade
+      await this.q('DELETE FROM withlook.projects WHERE id = $1', [p.id]);
+      return true;
+    }
+    const p = this.data.projects.find((x) => x.folder === folder);
+    if (!p) return false;
+    const sessionIds = new Set(this.data.sessions.filter((s) => s.project_id === p.id).map((s) => s.id));
+    this.data.sessions = this.data.sessions.filter((s) => s.project_id !== p.id);
+    this.data.messages = this.data.messages.filter((m) => !sessionIds.has(m.session_id));
+    this.data.projects = this.data.projects.filter((x) => x.id !== p.id);
+    this._saveFile();
+    return true;
+  }
 
   // ---- sessions ----
   async createSession(folder, title) {

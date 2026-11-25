@@ -42,6 +42,14 @@ const { MemoryStore } = require('../main/store');
   const all = await store.listSessions();
   check('all sessions without filter', all.length >= 2 && all.some((s) => s.id === sb.id));
 
+  // removing a project clears it and its chats, but not other projects
+  const removedA = await store.removeProject(folder);
+  const afterA = await store.listProjects();
+  const afterSessionsA = await store.listSessions(folder);
+  check('project removed', removedA && !afterA.some((p) => p.folder === folder));
+  check('project sessions removed', afterSessionsA.length === 0);
+  check('other project survives', afterA.some((p) => p.folder === folderB));
+
   // clean up the rows this test created in the real database
   try {
     const { Client } = require('pg');
@@ -60,6 +68,8 @@ const { MemoryStore } = require('../main/store');
   await fileStore.upsertProject({ folder: '/tmp/x', name: 'x', pm: 'npm', port: 3000 });
   const fp = await fileStore.listProjects();
   check('file projects', fp.length === 1);
+  const fremove = await fileStore.removeProject('/tmp/x');
+  check('file project removed', fremove && (await fileStore.listProjects()).length === 0);
 
   const failed = checks.filter(([, ok]) => !ok);
   console.log(failed.length ? 'STORE_FAIL ' + failed.map((f) => f[0]).join(', ') : 'STORE_PASS (' + checks.length + ' checks)');

@@ -15,6 +15,13 @@
     body.home #add, body.home #a-new, body.home #a-history, body.home #changes,
     body.home #sidebar, body.home #chat, body.home #sandbox { display: none; }
     body.home #home { background: #27272a; border-color: #3f3f46; color: #fafafa; }
+    body.loading #add, body.loading #sandbox, body.loading #changes,
+    body.loading #a-new, body.loading #a-history,
+    body.loading #sidebar, body.loading #chat { display: none; }
+    .loading-label { display: flex; align-items: center; gap: 8px; color: #71717a; font-size: 11.5px; padding: 0 4px; }
+    .loading-label .spin { width: 12px; height: 12px; border: 2px solid #27272a; border-top-color: #a1a1aa;
+      border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .act.on { background: #27272a; border-color: #3f3f46; color: #fafafa; }
     .home-label { color: #a1a1aa; font-size: 11.5px; font-weight: 600; padding: 0 4px; }
     #backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 1; }
@@ -115,20 +122,35 @@
       const changesBtn = document.getElementById('changes');
       const sandboxBtn = document.getElementById('sandbox');
       const sandboxMenu = document.getElementById('sandbox-menu');
-      let state = { tabs: ['/'], active: 0, home: false, sidebar: true, chat: true, sandbox: null };
+      let state = { tabs: ['/'], active: 0, home: false, sidebar: true, chat: true, sandbox: null, ready: true, phase: 'idle' };
       const sidebarBtn = document.getElementById('sidebar');
       const chatBtn = document.getElementById('chat');
       const render = () => {
+        const loading = !state.home && state.ready === false;
         document.body.classList.toggle('home', !!state.home);
+        document.body.classList.toggle('loading', loading);
         sidebarBtn.classList.toggle('on', state.sidebar !== false);
         chatBtn.classList.toggle('on', state.chat !== false);
-        sandboxBtn.hidden = !state.sandbox;
+        sandboxBtn.hidden = !state.sandbox || loading;
         if (state.sandbox) sandboxBtn.textContent = '⧉ ' + (state.sandbox.mode === 'copy' ? 'copy' : 'sandbox');
         tabsEl.innerHTML = '';
         if (state.home) {
           const label = document.createElement('span');
           label.className = 'home-label';
           label.textContent = 'Recent projects';
+          tabsEl.appendChild(label);
+          return;
+        }
+        if (loading) {
+          const label = document.createElement('span');
+          label.className = 'loading-label';
+          const sp = document.createElement('span');
+          sp.className = 'spin';
+          label.appendChild(sp);
+          label.appendChild(document.createTextNode(
+            state.phase === 'error' ? 'Project failed to load'
+              : state.phase === 'starting' ? 'Starting dev server…'
+              : 'Loading project…'));
           tabsEl.appendChild(label);
           return;
         }

@@ -18,8 +18,8 @@ Your project folder is never touched by the agent. Edits and the dev server run 
 - **Element picker** (`⌘E`) — validated selectors, highlight box, source search, and open-in-editor at the line.
 - **AI chat** — Cloudflare Workers AI, any OpenAI-compatible endpoint, or the local `opencode` agent. Streaming answers, collapsible tool groups, live edit cards with per-file diffs, and one-click file apply in write mode.
 - **Safe sandbox** — agent edits + the dev server run in an isolated git worktree. Uncommitted work is mirrored, `node_modules` is symlinked, `.env*` is copied without being committed, and the sandbox is snapshotted so the diff is agent-only. Apply to your folder or discard from the top bar.
-- **Home dashboard** — recent projects with thumbnails, GitHub repo, running state, and a first-run onboarding card. Launch always lands here; projects start only when you click one.
-- **Tabs + canvas** — per-route tabs, multi-page canvas, zoom/pan, pop-out preview.
+- **Home dashboard** — recent projects with thumbnails, GitHub repo, running state, and a first-run onboarding card. Launch always lands here; projects start only when you click one. Hover a card or workspace → `×` twice to remove it and its chats from withlook (the folder stays on disk).
+- **Tabs + canvas** — per-route tabs, multi-page canvas, zoom/pan, pop-out preview. Project chrome appears only after the page is fully loaded.
 - **Chrome toggles** — hide the sidebar (`⌘B`) and the chat (`⌘⇧J`); the preview takes the space.
 - **Git** — branch/changes chip, per-file diffs, commit all.
 - **Memory** — Postgres (`withlook` schema) for projects, sessions, and messages, with a local JSON fallback.
@@ -61,7 +61,7 @@ Agent edits are isolated by default:
 1. A git worktree is created under `~/Library/Application Support/withlook/worktrees/` on a `withlook/sandbox-*` branch.
 2. Your current uncommitted changes are mirrored into it and snapshotted as the sandbox base, so the change report contains only the agent's edits.
 3. `node_modules` is symlinked; `.env*` is copied locally and excluded from the commit, report, and apply.
-4. The dev server and opencode run in the sandbox — your folder is untouched.
+4. The dev server and opencode run in the sandbox — your folder is untouched. Next 16 sandboxes use `next dev --webpack` because Turbopack rejects the linked `node_modules`.
 5. The top-bar **sandbox** chip → **Apply to project** or **Discard**. Dirty sandboxes survive quit; clean ones are removed.
 
 Non-git projects fall back to a temp copy. Disable the sandbox in Settings if you want the agent to edit in place.
@@ -111,10 +111,12 @@ npx electron test/e2e-picker.js
 npx electron test/e2e-combo.js
 npx electron test/e2e-settings.js
 npx electron test/e2e-tabbar.js
+npx electron test/e2e-projects.js
 node test/store.test.js
 node test/source.test.js
 node test/prompt.test.js
 node test/sandbox.test.js
+npx electron . --test-load ~/Developer/jyt-web/jyt-web
 ```
 
 ## License

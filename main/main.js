@@ -18,6 +18,7 @@ const PANEL_VIEW_H = 660;
 const SMOKE = process.argv.includes('--smoke');
 const TEST_PROJ = (() => { const i = process.argv.indexOf('--test-project'); return i >= 0 ? process.argv[i + 1] : null; })();
 const TEST_OPENCODE = (() => { const i = process.argv.indexOf('--test-opencode'); return i >= 0 ? process.argv[i + 1] : null; })();
+const TEST_LOAD = (() => { const i = process.argv.indexOf('--test-load'); return i >= 0 ? process.argv[i + 1] : null; })();
 
 // ---------- state ----------
 let win = null;
@@ -94,6 +95,7 @@ let sidebarView = null;
 let tabbarView = null;
 let loaderView = null;
 let activeLoading = false;
+let projectLoaded = false; // the first page finished loading after the server came up
 let loaderVisible = false; // mirrors loaderView visibility for tests/telemetry
 let overlayVisible = false; // mirrors overlayView visibility for tests/telemetry
 const SIDEBAR_W = 232;
@@ -120,6 +122,8 @@ function activeView() { return (tabs[activeTab] && tabs[activeTab].view) || page
 function broadcastTabs() {
   const state = {
     tabs: tabs.map((t) => t.route), active: activeTab, home: homeMode, sidebar: !sidebarHidden, chat: !chatHidden,
+    ready: devState.state === 'running' && projectLoaded,
+    phase: devState.state,
     sandbox: devState.sandbox ? { mode: devState.sandbox.mode, project: path.basename(devState.sandbox.folder) } : null,
   };
   if (tabbarView && !tabbarView.webContents.isDestroyed()) tabbarView.webContents.send('tabs:state', state);
@@ -204,8 +208,14 @@ function restackViews() {
   } catch {}
 }
 function attachLoading(wc, isActive) {
-  wc.on('did-start-loading', () => { if (isActive()) { activeLoading = true; applyLoader(); } });
-  wc.on('did-stop-loading', () => { if (isActive()) { activeLoading = false; applyLoader(); } });
+  wc.on('did-start-loading', () => { if (isActive()) { activeLoading = true; applyLoader(); if (devState.state === 'running' && !projectLoaded) broadcastTabs(); } });
+  wc.on('did-stop-loading', () => {
+    if (isActive()) {
+      activeLoading = false;
+      applyLoader();
+      if (devState.state === 'running') { projectLoaded = true; broadcastTabs(); }
+    }
+  });
 }
 function applyLoader() {
   if (!loaderView || !win) return;
@@ -513,6 +523,7 @@ async function findExistingDevServer(folder) {
   return null;
 }
 function attachDevServer(port, folder) {
+  projectLoaded = false;
   const localUrl = `http://localhost:${port}`;
   if (tabs[0]) tabs[0].route = '/';
   pushDevLog(`withlook: found a dev server already running for this project on :${port} — attaching`);
@@ -538,6 +549,26 @@ function detectPM(folder) {
   if (exists('yarn.lock')) return 'yarn';
   return 'npm';
 }
+// Next 16 defaults to Turbopack, which rejects a node_modules symlink pointing
+// outside the sandbox. In a sandbox, run the same `next dev` on webpack instead.
+function nextDevPlan(folder) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(folder, 'package.json'), 'utf8'));
+    const script = String((pkg.scripts && pkg.scripts.dev) || '');
+    if (!/\bnext\s+dev\b/.test(script)) return null;
+    if (/\s--webpack\b/.test(script)) return null;
+    let ver = (pkg.dependencies && pkg.dependencies.next) || (pkg.devDependencies && pkg.devDependencies.next) || '';
+    if (!/\d/.test(ver)) {
+      try { ver = JSON.parse(fs.readFileSync(path.join(folder, 'node_modules', 'next', 'package.json'), 'utf8')).version; } catch {}
+    }
+    const major = Number(String(ver).replace(/^[^\d]*/, '').split('.')[0]) || 0;
+    const turbopack = major >= 16 || /--turbopack|--turbo\b/.test(script);
+    if (!turbopack) return null;
+    const m = script.match(/next\s+dev([^&|;]*)/);
+    const extra = m ? m[1].trim().split(/\s+/).filter((x) => x && !/^--turbopack$|^--turbo$/.test(x)) : [];
+    return { major, extra };
+  } catch { return null; }
+}
 function pushDevLog(line) {
   const l = line.replace(/\x1b\[[0-9;]*m/g, '').trimEnd();
   if (!l.trim()) return;
@@ -549,6 +580,7 @@ function setDevStatus(patch) {
   devState = { ...devState, ...patch };
   overlaySend('dev:status', devState);
   layout(); // refresh canvas chrome visibility
+  broadcastTabs();
 }
 function killProc(proc) {
   if (!proc) return;
@@ -558,6 +590,7 @@ function killProc(proc) {
   } catch { try { proc.kill(); } catch {} }
 }
 function stopDev(keepView) {
+  projectLoaded = false;
   tabMenuOpen = false; // the top-bar dropdowns close with the project
   if (!keepView) closeExtraTabs(); // a restart (keepView) reloads its tabs when the server returns
   if (createProc) { createCancelled = true; killProc(createProc); createProc = null; }
@@ -581,6 +614,7 @@ function restartDev() {
 }
 async function startDev(folder) {
   homeMode = false; // leaving the dashboard for a live preview
+  projectLoaded = false;
   broadcastTabs();
   stopDev(true); // keep the current view — the new page loads when the server is up
   devLogs = [];
@@ -626,10 +660,19 @@ async function startDev(folder) {
     const existing = await findExistingDevServer(folder);
     if (existing) { attachDevServer(existing, folder); return; }
   }
-  pushDevLog(`$ ${pm} run dev  (in ${runFolder})`);
+  let cmd = pm, cmdArgs = ['run', 'dev'];
+  const plan = devState.sandbox ? nextDevPlan(runFolder) : null;
+  if (plan) {
+    if (pm === 'pnpm') { cmd = 'pnpm'; cmdArgs = ['exec', 'next', 'dev', ...plan.extra, '--webpack']; }
+    else if (pm === 'yarn') { cmd = 'yarn'; cmdArgs = ['next', 'dev', ...plan.extra, '--webpack']; }
+    else if (pm === 'bun') { cmd = 'bunx'; cmdArgs = ['next', 'dev', ...plan.extra, '--webpack']; }
+    else { cmd = 'npx'; cmdArgs = ['next', 'dev', ...plan.extra, '--webpack']; }
+    pushDevLog(`withlook: Next ${plan.major} + sandbox — using webpack (Turbopack rejects the linked node_modules)`);
+  }
+  pushDevLog(`$ ${cmd} ${cmdArgs.join(' ')}  (in ${runFolder})`);
   let proc;
   try {
-    proc = spawn(pm, ['run', 'dev'], {
+    proc = spawn(cmd, cmdArgs, {
       cwd: runFolder,
       env: { ...process.env, BROWSER: 'none', FORCE_COLOR: '0' },
       detached: process.platform !== 'win32',
@@ -1524,6 +1567,13 @@ function wireIpc() {
     return { ...r, ...(store.status()) };
   });
   ipcMain.handle('projects:list', () => store.listProjects());
+  ipcMain.handle('projects:remove', async (_e, folder) => {
+    if (!store || !folder) return { ok: false };
+    const wasRunning = devState.projectFolder === folder;
+    if (wasRunning) stopDev(false);
+    const removed = await store.removeProject(folder);
+    return { ok: removed, stopped: wasRunning };
+  });
   ipcMain.handle('sessions:new', (_e, folder) => store.createSession(folder));
   ipcMain.handle('sessions:latest', (_e, folder) => store.latestSession(folder));
   ipcMain.handle('sessions:list', (_e, folder) => store.listSessions(folder));
@@ -1563,7 +1613,7 @@ app.whenReady().then(async () => {
   buildMenu();
   store = new MemoryStore(app.getPath('userData'));
   // test/smoke runs must never write into the user's real project memory
-  const initRes = await store.init((SMOKE || TEST_PROJ || TEST_OPENCODE) ? '' : loadSettings().memory.url);
+  const initRes = await store.init((SMOKE || TEST_PROJ || TEST_OPENCODE || TEST_LOAD) ? '' : loadSettings().memory.url);
   if (initRes.error) console.error('memory store: postgres unavailable, using local file —', initRes.error);
   wireIpc();
   createWindow();
@@ -1818,6 +1868,29 @@ app.whenReady().then(async () => {
         app.exit(1);
       }
     }, 1000);
+  }
+  if (TEST_LOAD) {
+    // load a real project through the same path the app uses (sandbox + dev server)
+    const cleanup = () => { try { stopDev(false); } catch {} if (devState.sandbox) { sandbox.discardSandbox(devState.sandbox); devState.sandbox = null; } };
+    startDev(TEST_LOAD);
+    const poll = setInterval(() => {
+      if (devState.state === 'running') {
+        clearInterval(poll);
+        console.log(`LOAD_PASS url=${devState.url} folder=${devState.folder} sandbox=${devState.sandbox ? devState.sandbox.mode : 'off'}`);
+        setTimeout(() => { cleanup(); app.exit(0); }, 1500);
+      } else if (devState.state === 'error') {
+        clearInterval(poll);
+        console.log('LOAD_FAIL ' + devState.error + '\n' + devLogs.slice(-15).join('\n'));
+        cleanup();
+        app.exit(1);
+      }
+    }, 500);
+    setTimeout(() => {
+      clearInterval(poll);
+      console.log('LOAD_FAIL timeout state=' + devState.state + '\n' + devLogs.slice(-15).join('\n'));
+      cleanup();
+      app.exit(1);
+    }, 120000);
   }
 });
 function cleanupAll(final) {

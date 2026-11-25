@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('withlook', {
   cancelSelection: () => ipcRenderer.send('picker:cancel'),
   uiAction: (a) => ipcRenderer.send('page:ui', a),
   welcome: () => ipcRenderer.invoke('welcome:data'),
+  removeProject: (folder) => ipcRenderer.invoke('projects:remove', folder),
   pickCreateLocation: () => ipcRenderer.invoke('create:pickLocation'),
   submitCreate: (opts) => ipcRenderer.invoke('create:submit', opts),
   cancelCreate: () => ipcRenderer.invoke('create:cancel'),

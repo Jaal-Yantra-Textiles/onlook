@@ -36,15 +36,33 @@ app.whenReady().then(() => {
       })()
     `, true);
 
-    win.webContents.send('tabs:state', { tabs: ['/', '/about'], active: 1, home: false, sidebar: false, chat: false });
+    win.webContents.send('tabs:state', { tabs: ['/'], active: 0, home: false, ready: false, phase: 'starting', sidebar: true, chat: true, sandbox: { mode: 'worktree' } });
+    await new Promise((r) => setTimeout(r, 150));
+    const loading = await win.webContents.executeJavaScript(`
+      (() => ({
+        isHome: document.body.classList.contains('home'),
+        isLoading: document.body.classList.contains('loading'),
+        label: (document.querySelector('.loading-label') || {}).textContent || '',
+        addHidden: getComputedStyle(document.querySelector('#add')).display === 'none',
+        sandboxHidden: getComputedStyle(document.querySelector('#sandbox')).display === 'none',
+        changesHidden: getComputedStyle(document.querySelector('#changes')).display === 'none',
+        newChatHidden: getComputedStyle(document.querySelector('#a-new')).display === 'none',
+        sidebarHidden: getComputedStyle(document.querySelector('#sidebar')).display === 'none',
+        chatHidden: getComputedStyle(document.querySelector('#chat')).display === 'none',
+      }))()
+    `, true);
+
+    win.webContents.send('tabs:state', { tabs: ['/', '/about'], active: 1, home: false, ready: true, phase: 'running', sidebar: false, chat: false });
     await new Promise((r) => setTimeout(r, 150));
     const project = await win.webContents.executeJavaScript(`
       (() => ({
         isHome: document.body.classList.contains('home'),
+        isLoading: document.body.classList.contains('loading'),
         tabs: [...document.querySelectorAll('.tab .route')].map((n) => n.textContent),
         active: [...document.querySelectorAll('.tab')].findIndex((n) => n.classList.contains('on')),
         addVisible: getComputedStyle(document.querySelector('#add')).display !== 'none',
         homeLabel: !!document.querySelector('.home-label'),
+        loadingLabel: !!document.querySelector('.loading-label'),
         sidebarOn: document.querySelector('#sidebar').classList.contains('on'),
         chatOn: document.querySelector('#chat').classList.contains('on'),
         togglesVisible: getComputedStyle(document.querySelector('#sidebar')).display !== 'none' &&
@@ -55,10 +73,13 @@ app.whenReady().then(() => {
     clearTimeout(timer);
     const ok = home.isHome && home.label === 'Recent projects' && home.addHidden && home.homeVisible && home.togglesHidden &&
       home.macPad === '86px' && home.barH === 38 && home.barTop === 0 &&
-      !project.isHome && project.tabs.join(',') === '/,/about' && project.active === 1 &&
-      project.addVisible && !project.homeLabel && project.togglesVisible &&
+      !loading.isHome && loading.isLoading && /Starting dev server/.test(loading.label) &&
+      loading.addHidden && loading.sandboxHidden && loading.changesHidden && loading.newChatHidden &&
+      loading.sidebarHidden && loading.chatHidden &&
+      !project.isHome && !project.isLoading && project.tabs.join(',') === '/,/about' && project.active === 1 &&
+      project.addVisible && !project.homeLabel && !project.loadingLabel && project.togglesVisible &&
       !project.sidebarOn && !project.chatOn;
-    console.log(ok ? 'TABBAR_PASS' : 'TABBAR_FAIL ' + JSON.stringify({ home, project }));
+    console.log(ok ? 'TABBAR_PASS' : 'TABBAR_FAIL ' + JSON.stringify({ home, loading, project }));
     app.exit(ok ? 0 : 1);
   }).catch((e) => { clearTimeout(timer); fail(e.message); });
 });

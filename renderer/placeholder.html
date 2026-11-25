@@ -66,7 +66,12 @@
       font-size: 12px; padding: 0 10px; text-align: left; }
     .ws:hover { background: #141417; color: var(--fg); }
     .ws svg { color: var(--dim); }
-    .ws .ws-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ws .ws-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .ws-x { flex: 0 0 18px; width: 18px; height: 18px; border-radius: 5px; display: flex;
+      align-items: center; justify-content: center; font-size: 11px; color: var(--dim);
+      opacity: 0; cursor: pointer; }
+    .ws:hover .ws-x { opacity: 1; }
+    .ws-x:hover { color: #f87171; background: rgba(248,113,113,0.1); }
     .ws-empty { color: var(--faint); font-size: 11px; padding: 4px 10px; }
     .spacer { flex: 1 1 auto; }
 
@@ -99,11 +104,23 @@
 
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
     .card {
+      position: relative;
       display: flex; flex-direction: column; align-items: stretch; text-align: left; padding: 0;
       background: var(--card); border: 1px solid var(--border); border-radius: 13px;
       overflow: hidden; color: var(--fg);
       transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
     }
+    .card-remove {
+      position: absolute; top: 8px; left: 8px; z-index: 2;
+      width: 20px; height: 20px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: #d4d4d8; cursor: pointer;
+      background: rgba(9,9,11,0.72); border: 1px solid rgba(255,255,255,0.14);
+      opacity: 0; transition: opacity 120ms ease;
+    }
+    .card:hover .card-remove { opacity: 1; }
+    .card-remove:hover { color: #f87171; border-color: rgba(248,113,113,0.45); }
+    .card-remove.armed { opacity: 1; color: #f87171; border-color: rgba(248,113,113,0.55); background: rgba(248,113,113,0.14); }
     .card:hover { border-color: #3f3f46; transform: translateY(-1px); box-shadow: 0 12px 30px rgba(0,0,0,0.35); }
     .thumb {
       position: relative; height: 148px; padding: 16px 18px 0; overflow: hidden;
@@ -250,6 +267,30 @@
       return p.name || String(p.folder || '').split('/').filter(Boolean).pop() || 'project';
     }
 
+    async function removeProject(p) {
+      const name = projectName(p);
+      const r = await (window.withlook && window.withlook.removeProject
+        ? window.withlook.removeProject(p.folder).catch(() => ({ ok: false }))
+        : Promise.resolve({ ok: false }));
+      if (r && r.ok) load();
+      else alert('Could not remove ' + name);
+    }
+    const armed = new WeakMap();
+    function armRemove(el, p) {
+      if (armed.get(el)) { armed.delete(el); removeProject(p); return; }
+      armed.set(el, true);
+      el.classList.add('armed');
+      el.textContent = '!';
+      el.title = 'Click again to remove ' + projectName(p);
+      setTimeout(() => {
+        if (!armed.get(el)) return;
+        armed.delete(el);
+        el.classList.remove('armed');
+        el.textContent = '×';
+        el.title = 'Remove from withlook (keeps the folder)';
+      }, 2500);
+    }
+
     function card(p, i, running) {
       const b = document.createElement('button');
       b.className = 'card';
@@ -266,8 +307,14 @@
       b.querySelector('.path').textContent = p.repo || shortPath(p.folder);
       b.querySelector('.when').textContent = p.last_opened_at ? ' · ' + timeAgo(p.last_opened_at) : '';
       b.title = p.folder + (p.repo ? ' · ' + p.repo : '');
-      b.title = p.folder;
       b.addEventListener('click', () => send({ action: 'openFolder', folder: p.folder }));
+      const x = document.createElement('span');
+      x.className = 'card-remove';
+      x.textContent = '×';
+      x.title = 'Remove from withlook (keeps the folder)';
+      x.setAttribute('role', 'button');
+      x.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); armRemove(x, p); });
+      b.appendChild(x);
       return b;
     }
 
@@ -279,13 +326,7 @@
       return b;
     }
 
-    window.addEventListener('DOMContentLoaded', async () => {
-      document.getElementById('btn-open').addEventListener('click', () => send('open'));
-      document.getElementById('btn-new').addEventListener('click', () => send('create'));
-      document.getElementById('promo-open').addEventListener('click', () => send('open'));
-      document.getElementById('nav-settings').addEventListener('click', () => send('settings'));
-      document.getElementById('nav-recent').addEventListener('click', () => document.querySelector('main').scrollTo({ top: 0, behavior: 'smooth' }));
-
+    async function load() {
       let data = null;
       try { data = window.withlook && window.withlook.welcome ? await window.withlook.welcome() : null; } catch (_) {}
       const projects = (data && data.projects) || [];
@@ -296,8 +337,8 @@
 
       // sidebar workspaces
       const ws = document.getElementById('workspaces');
+      ws.innerHTML = '';
       if (projects.length) {
-        ws.innerHTML = '';
         for (const p of projects.slice(0, 6)) {
           const b = document.createElement('button');
           b.className = 'ws';
@@ -305,12 +346,22 @@
           b.querySelector('.ws-name').textContent = projectName(p);
           b.title = p.folder;
           b.addEventListener('click', () => send({ action: 'openFolder', folder: p.folder }));
+          const x = document.createElement('span');
+          x.className = 'ws-x';
+          x.textContent = '×';
+          x.title = 'Remove from withlook (keeps the folder)';
+          x.setAttribute('role', 'button');
+          x.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); armRemove(x, p); });
+          b.appendChild(x);
           ws.appendChild(b);
         }
+      } else {
+        ws.innerHTML = '<div class="ws-empty">No workspaces yet</div>';
       }
 
       // main grid
       const content = document.getElementById('content');
+      content.innerHTML = '';
       if (!projects.length) {
         content.innerHTML =
           '<div class="empty-wrap"><div class="onboard">' +
@@ -336,6 +387,15 @@
       projects.slice(0, 24).forEach((p, i) => grid.appendChild(card(p, i, running)));
       grid.appendChild(newCard());
       content.appendChild(grid);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('btn-open').addEventListener('click', () => send('open'));
+      document.getElementById('btn-new').addEventListener('click', () => send('create'));
+      document.getElementById('promo-open').addEventListener('click', () => send('open'));
+      document.getElementById('nav-settings').addEventListener('click', () => send('settings'));
+      document.getElementById('nav-recent').addEventListener('click', () => document.querySelector('main').scrollTo({ top: 0, behavior: 'smooth' }));
+      load();
     });
   </script>
 </body>
