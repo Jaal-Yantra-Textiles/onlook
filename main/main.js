@@ -209,13 +209,9 @@ function restackViews() {
 }
 function attachLoading(wc, isActive) {
   wc.on('did-start-loading', () => { if (isActive()) { activeLoading = true; applyLoader(); if (devState.state === 'running' && !projectLoaded) broadcastTabs(); } });
-  wc.on('did-stop-loading', () => {
-    if (isActive()) {
-      activeLoading = false;
-      applyLoader();
-      if (devState.state === 'running') { projectLoaded = true; broadcastTabs(); }
-    }
-  });
+  wc.on('did-stop-loading', () => { if (isActive()) { activeLoading = false; applyLoader(); } });
+  wc.on('did-finish-load', () => { if (isActive() && devState.state === 'running') { projectLoaded = true; broadcastTabs(); } });
+  wc.on('did-fail-load', () => { if (isActive()) { projectLoaded = false; broadcastTabs(); } });
 }
 function applyLoader() {
   if (!loaderView || !win) return;
