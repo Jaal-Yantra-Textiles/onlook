@@ -90,7 +90,7 @@ renderer/create-project.html  create-next-app flow
 renderer/sidebar.html   Project rail (repo, branch, pages, chats, server)
 renderer/tabbar.html    Persistent top bar (home, sidebar/chat toggles, tabs, sandbox, git)
 renderer/canvas-bar.html  Zoom/pan/multi-page dock
-website/                Marketing site (also published from docs/)
+website/                Marketing site (Pages-ready copy in docs/)
 ```
 
 ## Screenshots
