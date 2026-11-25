@@ -1011,7 +1011,7 @@ function isRealProject(p) {
   if (!p || !p.folder) return false;
   const f = p.folder;
   if (f.startsWith('/tmp/') || f.startsWith(os.tmpdir())) return false; // test fixtures
-  return fs.existsSync(path.join(f, 'package.json'));
+  return !!resolveProjectFolder(f);
 }
 
 // ---------- AI ----------
@@ -1607,7 +1607,9 @@ function wireIpc() {
   });
   ipcMain.handle('welcome:data', async () => ({
     projects: store
-      ? (await store.listProjects().catch(() => [])).filter(isRealProject).map((p) => ({ ...p, repo: repoFromFolder(p.folder) }))
+      ? (await store.listProjects().catch(() => [])).filter(isRealProject).map((p) => ({
+          ...p, repo: repoFromFolder(resolveProjectFolder(p.folder) || p.folder),
+        }))
       : [],
     running: { state: devState.state, folder: devState.folder, url: devState.url },
   }));
