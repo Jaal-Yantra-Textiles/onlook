@@ -2,6 +2,8 @@
 
 **A local-first editor for visual developers.** Load your local Next.js app, pick any element on the live page, and chat with an AI that sees the code behind it — then review the change and apply it safely.
 
+**[Live site](https://jaal-yantra-textiles.github.io/onlook/)** · **[GitHub](https://github.com/Jaal-Yantra-Textiles/onlook)**
+
 ![withlook editing a local Next.js app](docs/editor.png)
 
 ## Why
@@ -90,7 +92,7 @@ renderer/create-project.html  create-next-app flow
 renderer/sidebar.html   Project rail (repo, branch, pages, chats, server)
 renderer/tabbar.html    Persistent top bar (home, sidebar/chat toggles, tabs, sandbox, git)
 renderer/canvas-bar.html  Zoom/pan/multi-page dock
-website/                Marketing site (Pages-ready copy in docs/)
+website/                Marketing site (published from docs/ at jaal-yantra-textiles.github.io/onlook)
 ```
 
 ## Screenshots
