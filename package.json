@@ -10,6 +10,7 @@
     "smoke": "electron . --smoke",
     "icon": "electron tools/icon.js",
     "build": "electron-builder --mac --publish never",
+    "build:win": "electron-builder --win zip --x64 --publish never",
     "build:dir": "electron-builder --dir"
   },
   "build": {
@@ -30,6 +31,10 @@
       "icon": "build/icon.png",
       "identity": null,
       "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["zip"],
+      "icon": "build/icon.png"
     },
     "dmg": {
       "title": "withlook"

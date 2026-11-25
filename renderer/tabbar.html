@@ -263,7 +263,24 @@
         };
         btn.onclick = doCommit;
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doCommit(); });
-        row.append(input, btn);
+        const pushBtn = document.createElement('button');
+        pushBtn.textContent = 'Push';
+        pushBtn.title = 'Push the current branch to origin';
+        pushBtn.onclick = async () => {
+          pushBtn.disabled = true;
+          statusEl.className = 'commit-status';
+          statusEl.textContent = 'pushing…';
+          const pr = await (window.wl.gitPush ? window.wl.gitPush() : Promise.resolve({ ok: false, error: 'unavailable' })).catch((e) => ({ ok: false, error: e.message }));
+          pushBtn.disabled = false;
+          if (pr.ok) {
+            statusEl.className = 'commit-status ok';
+            statusEl.textContent = '✓ ' + (pr.output || 'pushed');
+          } else {
+            statusEl.className = 'commit-status err';
+            statusEl.textContent = pr.error || 'push failed';
+          }
+        };
+        row.append(input, btn, pushBtn);
         changesMenu.append(row, statusEl);
       }
       changesBtn.onclick = (e) => {

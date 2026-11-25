@@ -878,7 +878,7 @@ els.messages.addEventListener('click', async (e) => {
     if (pre.dataset.loaded) return;
     pre.dataset.loaded = '1';
     pre.textContent = 'loading diff…';
-    const r = await window.wl.gitDiff(rpRow.dataset.file).catch(() => null);
+    const r = await window.wl.gitDiff(rpRow.dataset.file, 'sandbox').catch(() => null);
     if (!r || !r.ok) { pre.textContent = (r && r.error) || 'diff unavailable'; return; }
     if (!String(r.diff).trim()) { pre.textContent = '(new untracked file — no tracked diff)'; return; }
     pre.innerHTML = diffHtml(r.diff);

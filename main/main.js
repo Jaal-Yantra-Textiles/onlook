@@ -2,6 +2,7 @@
 const { app, BrowserWindow, WebContentsView, Menu, ipcMain, dialog, shell, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { spawn } = require('node:child_process');
 const readline = require('node:readline');
 const sandbox = require('./sandbox');
@@ -19,6 +20,10 @@ const SMOKE = process.argv.includes('--smoke');
 const TEST_PROJ = (() => { const i = process.argv.indexOf('--test-project'); return i >= 0 ? process.argv[i + 1] : null; })();
 const TEST_OPENCODE = (() => { const i = process.argv.indexOf('--test-opencode'); return i >= 0 ? process.argv[i + 1] : null; })();
 const TEST_LOAD = (() => { const i = process.argv.indexOf('--test-load'); return i >= 0 ? process.argv[i + 1] : null; })();
+// test runs must never touch the user's real memory.json / settings.json
+if (SMOKE || TEST_PROJ || TEST_OPENCODE || TEST_LOAD) {
+  try { app.setPath('userData', path.join(os.tmpdir(), 'withlook-test')); } catch {}
+}
 
 // ---------- state ----------
 let win = null;
@@ -829,8 +834,11 @@ function repoFromFolder(folder) {
     return m ? repoFromRemote(m[1].trim()) : '';
   } catch { return ''; }
 }
-function gitStatus() {
-  const folder = devState.folder;
+function gitFolder(scope) {
+  return scope === 'sandbox' && devState.sandbox ? devState.folder : (devState.projectFolder || devState.folder);
+}
+function gitStatus(scope) {
+  const folder = gitFolder(scope);
   if (!folder) return Promise.resolve({ ok: false, error: 'no project' });
   const run = (args) => new Promise((resolve) => {
     execFile('git', args, { cwd: folder, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => resolve(err ? null : stdout));
@@ -914,7 +922,6 @@ async function listPages() {
 }
 
 // ---------- opencode discovery ----------
-const os = require('node:os');
 let opencodePath = null;
 function findOpencode() {
   if (opencodePath) return opencodePath;
@@ -977,8 +984,8 @@ function writeCodeFile(_e, { file, content }) {
   }
 }
 
-function gitDiff(_e, { file }) {
-  const folder = devState.folder;
+function gitDiff(_e, { file, scope }) {
+  const folder = gitFolder(scope);
   if (!folder || !file) return Promise.resolve({ ok: false, error: 'No project/file.' });
   return new Promise((resolve) => {
     execFile('git', ['diff', 'HEAD', '--', file], { cwd: folder, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
@@ -989,7 +996,7 @@ function gitDiff(_e, { file }) {
 }
 
 function gitCommit(_e, { message }) {
-  const folder = devState.folder;
+  const folder = gitFolder('project');
   if (!folder) return Promise.resolve({ ok: false, error: 'No project loaded.' });
   const msg = String(message || '').trim();
   if (!msg) return Promise.resolve({ ok: false, error: 'Commit message required.' });
@@ -1005,6 +1012,24 @@ function gitCommit(_e, { message }) {
       });
     });
   });
+}
+
+function gitPush() {
+  const folder = gitFolder('project');
+  if (!folder) return Promise.resolve({ ok: false, error: 'No project loaded.' });
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', args, { cwd: folder, maxBuffer: 4 * 1024 * 1024, timeout: 60000 }, (err, stdout, stderr) => {
+      resolve({ err, stdout: stdout || '', stderr: stderr || '' });
+    });
+  });
+  return (async () => {
+    let r = await run(['push']);
+    if (r.err) r = await run(['push', '-u', 'origin', 'HEAD']);
+    if (r.err) return { ok: false, error: String(r.stderr || r.err.message).trim().slice(0, 800) };
+    pushDevLog('withlook: pushed to origin');
+    refreshGitViews();
+    return { ok: true, output: String(r.stdout || r.stderr).trim().slice(-300) || 'pushed' };
+  })();
 }
 
 function isRealProject(p) {
@@ -1137,7 +1162,7 @@ async function handleChatSend(_e, { id, messages, context }) {
       if (code === 0 || stopper.aborted) {
         // report exactly what changed, so edits can never land invisibly
         try {
-          const git = await gitStatus();
+          const git = await gitStatus('sandbox');
           if (git.ok && git.files && git.files.length) {
             const lines = git.files.slice(0, 10)
               .map((f) => `${(f.status || '').trim()} ${f.path}` + (f.adds != null ? `  +${f.adds} −${f.dels}` : ''));
@@ -1528,6 +1553,7 @@ function wireIpc() {
   ipcMain.handle('git:status', gitStatus);
   ipcMain.handle('git:diff', gitDiff);
   ipcMain.handle('git:commit', gitCommit);
+  ipcMain.handle('git:push', gitPush);
   ipcMain.handle('sandbox:status', async () => {
     const sb = devState.sandbox;
     if (!sb) return { active: false };
@@ -1582,11 +1608,21 @@ function wireIpc() {
     const removed = await store.removeProject(folder);
     return { ok: removed, stopped: wasRunning };
   });
-  ipcMain.handle('sessions:new', (_e, folder) => store.createSession(folder));
-  ipcMain.handle('sessions:latest', (_e, folder) => store.latestSession(folder));
-  ipcMain.handle('sessions:list', (_e, folder) => store.listSessions(folder));
+  // sessions belong to the real project, never the sandbox path
+  const projectKey = (folder) => (devState.sandbox && folder && folder === devState.folder) ? devState.projectFolder : folder;
+  ipcMain.handle('sessions:new', async (_e, folder) => {
+    const s = await store.createSession(projectKey(folder));
+    overlaySend('sessions:changed', {});
+    return s;
+  });
+  ipcMain.handle('sessions:latest', (_e, folder) => store.latestSession(projectKey(folder)));
+  ipcMain.handle('sessions:list', (_e, folder) => store.listSessions(projectKey(folder)));
   ipcMain.handle('sessions:load', (_e, id) => store.loadSession(id));
-  ipcMain.handle('messages:append', (_e, m) => store.appendMessage(m));
+  ipcMain.handle('messages:append', async (_e, m) => {
+    const r = await store.appendMessage(m);
+    overlaySend('sessions:changed', {});
+    return r;
+  });
   ipcMain.handle('ui:panel', (_e, open) => setPanelOpen(open));
   ipcMain.handle('ui:settingsModal', (_e, open) => { settingsModal = !!open; layout(); return true; });
   ipcMain.handle('chat:send', handleChatSend);
@@ -1671,6 +1707,7 @@ app.whenReady().then(async () => {
     startDev(TEST_PROJ);
     let sawLoader = false;
     let sawPanelFlash = false;
+    let chatsOk = false;
     const loaderPoll = setInterval(() => {
       if (devState.state === 'starting') {
         if (loaderVisible) sawLoader = true;
@@ -1700,6 +1737,19 @@ app.whenReady().then(async () => {
         }
         const branchText = await sidebarView.webContents.executeJavaScript("document.getElementById('branch').textContent", true).catch(() => '');
         console.log(`REPO ${/saransh\/wl-fake-proj/.test(repoText) ? 'PASS' : 'FAIL'} repo=${repoText} branch=${branchText}`);
+      })();
+      // recent chats must be keyed to the real project, not the sandbox path
+      (async () => {
+        try {
+          const sess = await store.createSession(devState.projectFolder);
+          await store.appendMessage({ sessionId: sess.id, role: 'user', content: 'recent chat check', title: 'recent chat check' });
+          overlaySend('sessions:changed', {});
+          await sleep(600);
+          const txt = await sidebarView.webContents.executeJavaScript(
+            "document.querySelector('#chats .chat') ? document.querySelector('#chats .chat').textContent : ''", true).catch(() => '');
+          chatsOk = /recent chat check/.test(txt);
+          console.log(`CHATS ${chatsOk ? 'PASS' : 'FAIL'} ${txt}`);
+        } catch (e) { console.log('CHATS FAIL ' + e.message); }
       })();
       // sidebar/chat toggles must give the preview the space and restore cleanly
       toggleSidebar();
@@ -1747,13 +1797,19 @@ app.whenReady().then(async () => {
             let commitOk = false;
             let commitErr = '';
             try {
-              fs.writeFileSync(path.join(devState.folder, 'commit-test.txt'), 'x' + Date.now());
+              fs.writeFileSync(path.join(devState.projectFolder || devState.folder, 'commit-test.txt'), 'x' + Date.now());
               const cr = await gitCommit(null, { message: 'withlook test commit' });
               const gs = await gitStatus();
               commitOk = cr.ok && gs.ok && gs.files.length === 0;
               commitErr = cr.ok ? '' : (cr.error || '');
             } catch (e) { commitErr = e.message; }
             console.log(`GIT_COMMIT ${commitOk ? 'PASS' : 'FAIL'}${commitErr ? ' ' + commitErr : ''}`);
+            let pushOk = false;
+            try {
+              const pr = await gitPush();
+              pushOk = pr.ok;
+              console.log(`PUSH ${pushOk ? 'PASS' : 'FAIL'} ${pushOk ? String(pr.output || '').split('\n')[0] : (pr.error || '')}`);
+            } catch (e) { console.log('PUSH FAIL ' + e.message); }
             // a new project must start at its root, never a stale route from before
             tabs[0].route = '/stale-route';
             restartDev();
@@ -1772,7 +1828,7 @@ app.whenReady().then(async () => {
                     console.log(`HOME ${okHome ? 'PASS' : 'FAIL'} url=${homeUrl}`);
                     try { stopDev(false); } catch {}
                     if (devState.sandbox) { sandbox.discardSandbox(devState.sandbox); devState.sandbox = null; }
-                    app.exit(okBtn && tabsOk && commitOk && okR && urlOk && okHome ? 0 : 1);
+                    app.exit(okBtn && tabsOk && commitOk && pushOk && okR && urlOk && okHome && chatsOk ? 0 : 1);
                   }, 1500))
                   .catch((e) => { console.log('HOME FAIL ' + e.message); app.exit(1); });
               }

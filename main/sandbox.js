@@ -37,7 +37,8 @@ function linkNodeModules(srcDir, destDir) {
   try {
     if (!fs.existsSync(src) || fs.existsSync(dest)) return;
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.symlinkSync(src, dest, 'dir');
+    // junctions work on Windows without Developer Mode; dir symlinks elsewhere
+    fs.symlinkSync(src, dest, process.platform === 'win32' ? 'junction' : 'dir');
   } catch {}
 }
 function statusEntries(gitDir) {

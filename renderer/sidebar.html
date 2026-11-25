@@ -145,13 +145,14 @@
       $('stop').onclick = () => WL().stopDev && WL().stopDev();
       $('restart').onclick = () => WL().restartDev && WL().restartDev();
       if (wl.onGitRefresh) wl.onGitRefresh(() => { refreshPages(); refreshGit(); });
+      if (wl.onSessionsChanged) wl.onSessionsChanged(() => refreshChats());
       if (wl.onPageNav) wl.onPageNav((info) => {
         try { activeRoute = new URL(info.url).pathname || '/'; } catch {}
         markActive();
       });
       const applyDev = (d) => {
         if (!d) return;
-        folder = d.folder || folder;
+        folder = d.projectFolder || d.folder || folder;
         const project = d.projectFolder || d.folder;
         $('proj').textContent = project ? String(project).split(/[\\/]/).filter(Boolean).pop() : 'project';
         $('srv').innerHTML = 'server <b>' + d.state + '</b>' + (d.port ? ' · :' + d.port : '');

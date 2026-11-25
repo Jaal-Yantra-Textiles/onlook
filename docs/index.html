@@ -117,6 +117,23 @@
     .composer .send { width: 24px; height: 24px; border-radius: 7px; background: #fafafa; }
     /* features */
     section.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 64px 0 30px; }
+    /* download */
+    section.download { padding: 56px 0 8px; }
+    .dl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .dl-head h2 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.02em; }
+    .dl-head p { margin: 0; color: var(--muted); font-size: 13px; }
+    .dl-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    .dl-card { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border);
+      background: var(--card); border-radius: var(--radius); padding: 18px 20px; text-decoration: none;
+      color: var(--fg); transition: border-color 120ms ease, transform 120ms ease; }
+    .dl-card:hover { border-color: #3f3f46; transform: translateY(-1px); }
+    .dl-card .os { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+    .dl-card .arch { font-size: 11.5px; color: var(--muted); }
+    .dl-card .note { font-size: 10.5px; color: var(--dim); margin-top: 4px; line-height: 1.5; }
+    .dl-card .arrow { margin-left: auto; color: var(--dim); }
+    .dl-all { font-size: 11.5px; color: var(--dim); text-decoration: none; white-space: nowrap; }
+    .dl-all:hover { color: var(--fg); }
+    @media (max-width: 720px) { .dl-grid { grid-template-columns: 1fr; } .dl-head { flex-direction: column; align-items: flex-start; } }
     .card { border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); padding: 22px; }
     .card h4 { margin: 0 0 8px; font-size: 14px; letter-spacing: -0.01em; }
     .card p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.6; }
@@ -137,10 +154,10 @@
       <div class="logo"><span class="dot"></span>withlook</div>
       <div class="links">
         <a href="#features">Features</a>
-        <a href="https://github.com/Jaal-Yantra-Textiles/onlook#readme">Docs</a>
-        <a href="https://github.com/Jaal-Yantra-Textiles/onlook">GitHub</a>
+        <a href="https://github.com/Jaal-Yantra-Textiles/onlook#readme" target="_blank" rel="noopener">Docs</a>
+        <a href="https://github.com/Jaal-Yantra-Textiles/onlook" target="_blank" rel="noopener">GitHub</a>
       </div>
-      <a class="nav-cta" href="https://github.com/Jaal-Yantra-Textiles/onlook#run">Download</a>
+      <a class="nav-cta" href="#download">Download</a>
     </nav>
 
     <header>
@@ -148,8 +165,8 @@
       <h1><span class="grad">Developer Tool<br/>For Visual Folks</span></h1>
       <p class="lede">Load your local Next.js app, pick elements on the live page, and chat with an AI that sees exactly what you selected — then watch it write the code.</p>
       <div class="ctas">
-        <a class="btn primary" href="https://github.com/Jaal-Yantra-Textiles/onlook#run">Get withlook</a>
-        <a class="btn ghost" href="https://github.com/Jaal-Yantra-Textiles/onlook">View on GitHub</a>
+        <a class="btn primary" href="#download">Get withlook</a>
+        <a class="btn ghost" href="https://github.com/Jaal-Yantra-Textiles/onlook" target="_blank" rel="noopener">View on GitHub</a>
       </div>
     </header>
 
@@ -202,6 +219,25 @@
         </div>
       </div>
     </div>
+
+    <section class="download" id="download">
+      <div class="dl-head">
+        <div><h2>Download withlook</h2><p>Local-first. Unsigned builds for now.</p></div>
+        <a class="dl-all" href="https://github.com/Jaal-Yantra-Textiles/onlook/releases" target="_blank" rel="noopener">All releases →</a>
+      </div>
+      <div class="dl-grid">
+        <a class="dl-card" href="https://github.com/Jaal-Yantra-Textiles/onlook/releases/latest/download/withlook-0.1.0-arm64.dmg" target="_blank" rel="noopener">
+          <span class="os">macOS <span class="arrow">↓</span></span>
+          <span class="arch">Apple Silicon · .dmg</span>
+          <span class="note">Right-click → Open the first time (unsigned).</span>
+        </a>
+        <a class="dl-card" href="https://github.com/Jaal-Yantra-Textiles/onlook/releases/latest/download/withlook-0.1.0-win.zip" target="_blank" rel="noopener">
+          <span class="os">Windows <span class="arrow">↓</span></span>
+          <span class="arch">x64 · .zip</span>
+          <span class="note">Unzip and run withlook.exe. Choose “More info → Run anyway”.</span>
+        </a>
+      </div>
+    </section>
 
     <section class="features" id="features">
       <div class="card"><div class="ic">◎</div><h4>Point at anything</h4><p>⌘E turns your cursor into a picker. The element's selector, HTML and computed styles become chat context instantly.</p></div>

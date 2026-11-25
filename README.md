@@ -21,9 +21,17 @@ Your project folder is never touched by the agent. Edits and the dev server run 
 - **Home dashboard** — recent projects with thumbnails, GitHub repo, running state, and a first-run onboarding card. Launch always lands here; projects start only when you click one. Hover a card or workspace → `×` twice to remove it and its chats from withlook (the folder stays on disk).
 - **Tabs + canvas** — per-route tabs, multi-page canvas, zoom/pan, pop-out preview. Project chrome appears only after the page is fully loaded.
 - **Chrome toggles** — hide the sidebar (`⌘B`) and the chat (`⌘⇧J`); the preview takes the space.
-- **Git** — branch/changes chip, per-file diffs, commit all.
+- **Git** — project-scoped branch/changes chip, per-file diffs, commit all, and push. Sandbox changes are applied first, then committed/pushed from the same chip.
 - **Memory** — Postgres (`withlook` schema) for projects, sessions, and messages, with a local JSON fallback.
 - **Global settings** — a centered modal with themed model/agent comboboxes, no page-specific chrome.
+
+## Download
+
+Unsigned builds for now:
+
+- **macOS (Apple Silicon):** [withlook-0.1.0-arm64.dmg](https://github.com/Jaal-Yantra-Textiles/onlook/releases/latest/download/withlook-0.1.0-arm64.dmg) — right-click → Open the first time.
+- **Windows (x64):** [withlook-0.1.0-win.zip](https://github.com/Jaal-Yantra-Textiles/onlook/releases/latest/download/withlook-0.1.0-win.zip) — unzip and run `withlook.exe`; choose “More info → Run anyway”.
+- [All releases](https://github.com/Jaal-Yantra-Textiles/onlook/releases)
 
 ## Run
 
@@ -63,6 +71,7 @@ Agent edits are isolated by default:
 3. `node_modules` is symlinked; `.env*` is copied locally and excluded from the commit, report, and apply.
 4. The dev server and opencode run in the sandbox — your folder is untouched. Next 16 sandboxes use `next dev --webpack` because Turbopack rejects the linked `node_modules`.
 5. The top-bar **sandbox** chip → **Apply to project** or **Discard**. Dirty sandboxes survive quit; clean ones are removed.
+6. After applying, open the **git chip** → **Commit all**, then **Push**. The git chip always operates on your real project; the sandbox is the review surface.
 
 Non-git projects fall back to a temp copy. Disable the sandbox in Settings if you want the agent to edit in place.
 
