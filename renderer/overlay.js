@@ -720,7 +720,7 @@ async function startProject(folder) {
   // panel docks on its own once the server is running (no floating-panel flash)
   const r = await window.wl.startDev(folder);
   if (!r.ok) { flashPageChip(r.error || 'cannot start'); return; }
-  const data = await window.wl.sessionsLatest(folder);
+  const data = await window.wl.sessionsLatest(r.folder || folder);
   if (data && data.session) restoreSession(data);
   else { clearChat(); state.sessionId = null; }
 }

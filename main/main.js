@@ -538,6 +538,17 @@ function attachDevServer(port, folder) {
 }
 
 // ---------- dev server ----------
+function resolveProjectFolder(folder) {
+  if (!folder) return null;
+  if (fs.existsSync(path.join(folder, 'package.json'))) return folder;
+  // users often pick the parent of the app (e.g. ~/Developer/jyt-web/jyt-web)
+  try {
+    const children = fs.readdirSync(folder, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith('.') && fs.existsSync(path.join(folder, d.name, 'package.json')));
+    if (children.length === 1) return path.join(folder, children[0].name);
+  } catch {}
+  return null;
+}
 function detectPM(folder) {
   const exists = (f) => fs.existsSync(path.join(folder, f));
   if (exists('bun.lockb') || exists('bun.lock')) return 'bun';
@@ -1486,11 +1497,12 @@ function wireIpc() {
     });
   });
   ipcMain.handle('dev:start', async (_e, folder) => {
-    if (!folder || !fs.existsSync(path.join(folder, 'package.json'))) {
+    const resolved = resolveProjectFolder(folder);
+    if (!resolved) {
       return { ok: false, error: 'That folder has no package.json — is it a Next.js project?' };
     }
-    startDev(folder);
-    return { ok: true };
+    startDev(resolved);
+    return { ok: true, folder: resolved };
   });
   ipcMain.handle('dev:stop', () => { stopDev(); return true; });
   ipcMain.handle('dev:restart', () => restartDev());
@@ -1868,7 +1880,7 @@ app.whenReady().then(async () => {
   if (TEST_LOAD) {
     // load a real project through the same path the app uses (sandbox + dev server)
     const cleanup = () => { try { stopDev(false); } catch {} if (devState.sandbox) { sandbox.discardSandbox(devState.sandbox); devState.sandbox = null; } };
-    startDev(TEST_LOAD);
+    startDev(resolveProjectFolder(TEST_LOAD) || TEST_LOAD);
     const poll = setInterval(() => {
       if (devState.state === 'running') {
         clearInterval(poll);
