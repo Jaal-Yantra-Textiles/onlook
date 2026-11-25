@@ -204,6 +204,7 @@ function restackViews() {
     win.contentView.addChildView(tabbarView);
     win.contentView.addChildView(sidebarView);
     win.contentView.addChildView(overlayView);
+    if (tabMenuOpen) win.contentView.addChildView(tabbarView); // an open dropdown stays above the chat/sidebar
     // keep the visibility flags true after re-stacking
     for (let k = 0; k < tabs.length; k++) {
       const isOn = k === activeTab;
@@ -309,7 +310,17 @@ function doCanvasAction(action, data) {
     case 'toggleChat': toggleChat(); break;
     case 'home': openHome(); break;
     case 'multiCanvas': multiCanvas = !multiCanvas; if (!multiCanvas) selectTab(activeTab); applyCanvas(); break;
-    case 'menu': tabMenuOpen = !!data; applyCanvas(); break;
+    case 'menu': {
+      const open = !!data;
+      tabMenuOpen = open;
+      // the dropdown is a modal: raise the bar above the docked sidebar/chat so it can't be covered
+      try {
+        if (open) win.contentView.addChildView(tabbarView);
+        else { win.contentView.addChildView(sidebarView); win.contentView.addChildView(overlayView); }
+      } catch {}
+      applyCanvas();
+      break;
+    }
     case 'newChat': overlaySend('ui:newChat', {}); break;
     case 'history': overlaySend('ui:openHistory', {}); break;
     case 'settings': overlaySend('ui:openSettings', {}); break;
@@ -1760,11 +1771,13 @@ app.whenReady().then(async () => {
       toggleChat();
       const chromeOk = sideOk && chatOk && !sidebarHidden && !chatHidden && overlayVisible === true;
       console.log(`CHROME ${chromeOk ? 'PASS' : 'FAIL'} side=${sideOk} chat=${chatOk}`);
-      // the top bar must grow for its dropdowns (otherwise they clip outside the view)
-      tabMenuOpen = true; applyCanvas();
+      // the top bar must grow for its dropdowns and sit above the docked chat/sidebar
+      doCanvasAction('menu', true);
       const menuH = tabbarView.getBounds().height;
-      tabMenuOpen = false; applyCanvas();
-      console.log(`TAB_MENU ${menuH > 100 ? 'PASS' : 'FAIL'} h=${menuH}`);
+      const topOpen = win.contentView.children[win.contentView.children.length - 1] === tabbarView;
+      doCanvasAction('menu', false);
+      const topClosed = win.contentView.children[win.contentView.children.length - 1] === overlayView;
+      console.log(`TAB_MENU ${menuH > 100 ? 'PASS' : 'FAIL'} h=${menuH} top=${topOpen && topClosed ? 'PASS' : 'FAIL'}`);
       // and it must shrink again after choosing a route from the + menu
       tabbarView.webContents.executeJavaScript("document.getElementById('add').click(); 'x'", true)
         .then(() => setTimeout(() => {

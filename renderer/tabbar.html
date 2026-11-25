@@ -64,7 +64,17 @@
       box-shadow: 0 14px 36px rgba(0,0,0,0.55); padding: 6px; z-index: 5;
     }
     #menu { left: 12px; }
-    #changes-menu { right: 12px; }
+    #changes-menu { right: 12px; width: 380px; max-width: 380px; max-height: min(70vh, 560px);
+      display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+    .git-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+      padding: 11px 13px; border-bottom: 1px solid #1f1f23; background: #0c0c0f; }
+    .git-title { font-size: 12px; font-weight: 650; color: #f4f4f5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .git-branch { margin-top: 3px; font-size: 10px; color: #5ce1c7; font-family: ui-monospace, Menlo, monospace;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .git-count { font-size: 10px; color: #71717a; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
+    .git-list { flex: 1; min-height: 0; overflow-y: auto; padding: 5px; }
+    .git-list::-webkit-scrollbar { width: 7px; }
+    .git-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
     #sandbox-menu { right: 12px; }
     .menu button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
       background: none; border: 0; color: #d4d4d8; font-family: ui-monospace, Menlo, monospace;
@@ -77,13 +87,22 @@
     .menu .sep { height: 1px; background: #1f1f23; margin: 4px 6px; }
     .menu .lbl { color: #71717a; font-size: 10px; padding: 4px 9px 2px; text-transform: uppercase; letter-spacing: .06em; font-family: -apple-system, system-ui, sans-serif; }
     .menu .none { color: #71717a; font-size: 11px; padding: 6px 9px; }
-    .commit { display: flex; gap: 6px; padding: 8px 6px 4px; }
-    .commit input { flex: 1; min-width: 0; background: #0c0c0f; border: 1px solid #27272a; border-radius: 7px;
-      color: #f4f4f5; font-size: 11px; padding: 6px 9px; outline: none; font-family: inherit; }
-    .commit input:focus { border-color: #52525b; }
-    .commit button { flex: 0 0 auto; background: #fafafa; color: #09090b; border: 0; border-radius: 7px;
-      font-size: 11px; font-weight: 600; padding: 6px 12px; cursor: pointer; font-family: inherit; }
-    .commit button:disabled { opacity: 0.5; cursor: default; }
+    .commit { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 11px;
+      border-top: 1px solid #1f1f23; background: #0c0c0f; }
+    .commit input { width: 100%; flex: none; background: #0a0c10; border: 1px solid #27272a; border-radius: 8px;
+      color: #f4f4f5; font-size: 11.5px; padding: 8px 10px; outline: none; font-family: inherit; }
+    .commit input:focus { border-color: #52525b; box-shadow: 0 0 0 3px rgba(250,250,250,0.05); }
+    .commit-actions { display: flex; gap: 8px; }
+    .commit-actions .commit-all { flex: 1 1 0; width: auto; white-space: nowrap; background: #fafafa; color: #09090b; border: 1px solid #fafafa;
+      border-radius: 8px; font-size: 11.5px; font-weight: 600; padding: 8px 12px; cursor: pointer; font-family: inherit; }
+    .commit-actions .commit-all:hover { background: #e4e4e7; }
+    .commit-actions .commit-all:disabled { opacity: 0.45; cursor: default; }
+    .commit-actions .push { flex: 0 0 auto; width: auto; white-space: nowrap; background: #18181b; color: #f4f4f5; border: 1px solid #27272a;
+      border-radius: 8px; font-size: 11.5px; font-weight: 550; padding: 8px 14px; cursor: pointer; font-family: inherit; }
+    .commit-actions .push:hover { background: #232326; border-color: #3f3f46; }
+    .commit-actions .push:disabled { opacity: 0.45; cursor: default; }
+    .commit .commit-status { padding: 0; font-size: 10px; min-height: 13px; }
+    .commit .commit-status:empty { display: none; }
     .commit-status { color: #71717a; font-size: 10.5px; padding: 2px 9px 6px; font-family: ui-monospace, Menlo, monospace; word-break: break-word; }
     .commit-status.err { color: #f87171; }
     .commit-status.ok { color: #5ce1c7; }
@@ -220,8 +239,19 @@
         changesBtn.innerHTML = n ? '⎇ ' + br + ' · <span class="n">' + n + '</span> changed' : '⎇ ' + br + ' · clean';
         changesBtn.title = 'Working-tree changes';
         changesMenu.innerHTML = '';
+        const head = document.createElement('div');
+        head.className = 'git-head';
+        head.innerHTML = '<div><div class="git-title"></div><div class="git-branch"></div></div><div class="git-count"></div>';
+        head.querySelector('.git-title').textContent = r.repo || 'Working tree';
+        head.querySelector('.git-branch').textContent = '⎇ ' + (r.branch || 'detached');
+        head.querySelector('.git-count').textContent = n ? n + ' file' + (n === 1 ? '' : 's') : 'clean';
+        changesMenu.appendChild(head);
+
+        const list = document.createElement('div');
+        list.className = 'git-list';
         if (!n) {
-          changesMenu.innerHTML = '<div class="none">Working tree clean.</div>';
+          const none = document.createElement('div'); none.className = 'none'; none.textContent = 'Working tree clean.';
+          list.appendChild(none);
         } else {
           for (const f of r.files.slice(0, 40)) {
             const b = document.createElement('button');
@@ -230,16 +260,21 @@
               (f.adds != null ? '<span class="d">+' + f.adds + ' −' + f.dels + '</span>' : '');
             b.querySelector('.p').textContent = f.path;
             b.onclick = () => { closeMenus(); if (window.wl.openSource) window.wl.openSource({ file: f.abs, line: 1 }); };
-            changesMenu.appendChild(b);
+            list.appendChild(b);
           }
         }
-        // commit box — commit every working-tree change locally
-        const sep = document.createElement('div'); sep.className = 'sep'; changesMenu.appendChild(sep);
-        const row = document.createElement('div'); row.className = 'commit';
+        changesMenu.appendChild(list);
+
+        // commit + push panel, pinned below the scrollable file list
+        const commit = document.createElement('div');
+        commit.className = 'commit';
         const input = document.createElement('input');
-        input.placeholder = 'commit message';
+        input.placeholder = 'Commit message…';
         input.spellcheck = false;
+        const actions = document.createElement('div');
+        actions.className = 'commit-actions';
         const btn = document.createElement('button');
+        btn.className = 'commit-all';
         btn.textContent = 'Commit all';
         btn.disabled = !n;
         const statusEl = document.createElement('div'); statusEl.className = 'commit-status';
@@ -264,7 +299,8 @@
         btn.onclick = doCommit;
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doCommit(); });
         const pushBtn = document.createElement('button');
-        pushBtn.textContent = 'Push';
+        pushBtn.className = 'push';
+        pushBtn.innerHTML = 'Push <span aria-hidden="true">↑</span>';
         pushBtn.title = 'Push the current branch to origin';
         pushBtn.onclick = async () => {
           pushBtn.disabled = true;
@@ -280,8 +316,9 @@
             statusEl.textContent = pr.error || 'push failed';
           }
         };
-        row.append(input, btn, pushBtn);
-        changesMenu.append(row, statusEl);
+        actions.append(btn, pushBtn);
+        commit.append(input, actions, statusEl);
+        changesMenu.appendChild(commit);
       }
       changesBtn.onclick = (e) => {
         e.stopPropagation();
