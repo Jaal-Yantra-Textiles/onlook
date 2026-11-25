@@ -2,7 +2,7 @@
 
 **A local-first editor for visual developers.** Load your local Next.js app, pick any element on the live page, and chat with an AI that sees the code behind it — then review the change and apply it safely.
 
-**[Live site](https://withlook.kindhealth.tech/)** · **[GitHub](https://github.com/Jaal-Yantra-Textiles/onlook)**
+**[Live site](https://withlook.kindhealth.tech/)** · **[GitHub](https://github.com/Jaal-Yantra-Textiles/onlook)** · ![build](https://github.com/Jaal-Yantra-Textiles/onlook/actions/workflows/build.yml/badge.svg)
 
 ![withlook editing a local Next.js app](docs/editor.png)
 
