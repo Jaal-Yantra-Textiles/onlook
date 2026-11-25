@@ -4,6 +4,8 @@
 
 **[Live site](https://withlook.kindhealth.tech/)** · **[GitHub](https://github.com/Jaal-Yantra-Textiles/onlook)** · ![build](https://github.com/Jaal-Yantra-Textiles/onlook/actions/workflows/build.yml/badge.svg)
 
+[![withlook on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1330458&theme=dark)](https://www.producthunt.com/posts/withlook)
+
 ![withlook editing a local Next.js app](docs/editor.png)
 
 ## Why
