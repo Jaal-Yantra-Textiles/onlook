@@ -13,6 +13,8 @@
       overflow: hidden; cursor: default;
     }
     .card.on { border-color: var(--wl-mint-line); box-shadow: 0 0 0 2px var(--wl-mint-bg), var(--wl-shadow-sm); }
+    @keyframes ref-in { from { opacity: 0; transform: translateY(8px) scale(.96); } to { opacity: 1; transform: none; } }
+    .card { animation: ref-in 220ms cubic-bezier(.2, .8, .2, 1); }
     .card.off .shot { opacity: .45; }
     .head {
       display: flex; align-items: center; gap: 6px; height: 24px; flex: 0 0 24px;

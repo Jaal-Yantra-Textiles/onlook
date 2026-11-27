@@ -104,7 +104,7 @@ class References {
     } catch { return null; }
   }
 
-  addPath(file) {
+  addPath(file, place) {
     if (this.items.length >= MAX_REFS) return { ok: false, error: `Up to ${MAX_REFS} references.` };
     try {
       const img = nativeImage.createFromPath(file);
@@ -116,7 +116,9 @@ class References {
       const dest = path.join(this.assets, id + ext);
       fs.copyFileSync(file, dest); // keep our own copy — the original can move
       const size = cardSize(enc.width, enc.height);
-      const slot = nextSlot(this.items, size.w, size.h);
+      const slot = (place && Number.isFinite(place.x) && Number.isFinite(place.y))
+        ? { x: place.x, y: place.y }
+        : nextSlot(this.items, size.w, size.h);
       const item = {
         id, path: dest, name: path.basename(file), include: true,
         x: slot.x, y: slot.y, w: size.w, h: size.h,
@@ -130,7 +132,7 @@ class References {
     }
   }
 
-  addBuffer(buffer, name) {
+  addBuffer(buffer, name, place) {
     if (this.items.length >= MAX_REFS) return { ok: false, error: `Up to ${MAX_REFS} references.` };
     try {
       const img = nativeImage.createFromBuffer(buffer);
@@ -141,7 +143,9 @@ class References {
       const dest = path.join(this.assets, id + '.png');
       fs.writeFileSync(dest, buffer);
       const size = cardSize(enc.width, enc.height);
-      const slot = nextSlot(this.items, size.w, size.h);
+      const slot = (place && Number.isFinite(place.x) && Number.isFinite(place.y))
+        ? { x: place.x, y: place.y }
+        : nextSlot(this.items, size.w, size.h);
       const item = {
         id, path: dest, name: name || 'image.png', include: true,
         x: slot.x, y: slot.y, w: size.w, h: size.h,

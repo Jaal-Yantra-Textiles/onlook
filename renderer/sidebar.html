@@ -174,7 +174,7 @@
         $('srv').innerHTML = 'server <b>' + d.state + '</b>' + (d.port ? ' · :' + d.port : '');
         $('sb-note').hidden = !d.sandbox;
         if (d.sandbox) $('sb-note').title = d.sandbox.projectPath || d.sandbox.root || '';
-        if (d.state === 'running') { refreshChats(); refreshPages(); refreshGit(); }
+        if (d.state === 'running') { refreshChats(); refreshPages(); refreshGit(); setTimeout(refreshPages, 400); }
       };
       if (wl.onDevStatus) wl.onDevStatus(applyDev);
       // the sidebar can mount after the project is already running — hydrate from the current status

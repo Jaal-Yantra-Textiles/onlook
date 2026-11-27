@@ -116,6 +116,8 @@ function refreshGitViews() {
 // ---------- layout ----------
 // ---------- canvas camera (Onlook-style: {x, y, zoom}) ----------
 const canvas = { zoom: 1, x: 0, y: 0, panMode: false };
+let refsShift = 0; // slides the page left to make room for the reference rail
+let refsShiftTimer = null;
 let canvasBarView = null;
 let panGlassView = null;
 let sidebarView = null;
@@ -153,11 +155,12 @@ async function pickReferences() {
   });
   if (!r.canceled) {
     let added = 0;
-    for (const f of r.filePaths) { const a = refsStore.addPath(f); if (a.ok) added++; }
+    for (const f of r.filePaths) { const a = refsStore.addPath(f, newRefPlace()); if (a.ok) added++; }
     if (added) {
       refsOpen = true;
       pushDevLog(`withlook: added ${added} reference image${added === 1 ? '' : 's'}`);
       refsSend();
+      updateRefsShift();
     }
   }
   return refsState();
@@ -224,22 +227,50 @@ function layoutRefCards() {
   if (!win) return;
   const a = previewArea();
   const zoom = canvas.zoom || 1;
-  const pageW = Math.round(a.w * zoom);
-  const pageH = Math.round(a.h * zoom);
-  const originX = a.x + Math.round((a.w - pageW) / 2);
-  const originY = a.y + Math.round((a.h - pageH) / 2);
   for (const [id, view] of refCards) {
     const item = refsStore && refsStore.items.find((i) => i.id === id);
     if (!item) continue;
     const w = Math.max(80, Math.round(item.w * zoom));
     const h = Math.max(60, Math.round(item.h * zoom));
-    let x = originX + Math.round(item.x * zoom);
-    let y = originY + Math.round(item.y * zoom);
+    let x = a.x + Math.round(item.x * zoom);
+    let y = a.y + Math.round(item.y * zoom);
     // keep a corner reachable when the window or zoom changes
     x = Math.max(a.x - w + 48, Math.min(x, a.x + a.w - 48));
     y = Math.max(a.y - h + 48, Math.min(y, a.y + a.h - 48));
     try { view.setBounds({ x, y, width: w, height: h }); } catch {}
   }
+}
+function newRefPlace() {
+  const a = previewArea();
+  const z = canvas.zoom || 1;
+  const n = refsStore ? refsStore.items.length : 0;
+  const col = n % 2;
+  const row = Math.floor(n / 2) % 4;
+  return {
+    x: Math.max(28, Math.round((a.w - 300 - col * 260) / z)),
+    y: Math.round((24 + row * 260) / z),
+  };
+}
+function animateRefsShift(target) {
+  if (refsShiftTimer) { clearInterval(refsShiftTimer); refsShiftTimer = null; }
+  const start = refsShift;
+  if (Math.abs(start - target) < 1) { refsShift = target; applyCanvas(); return; }
+  const t0 = Date.now();
+  refsShiftTimer = setInterval(() => {
+    const k = Math.min(1, (Date.now() - t0) / 220);
+    const e = 1 - Math.pow(1 - k, 3);
+    refsShift = start + (target - start) * e;
+    applyCanvas();
+    if (k >= 1) {
+      clearInterval(refsShiftTimer);
+      refsShiftTimer = null;
+      refsShift = target;
+      applyCanvas();
+    }
+  }, 16);
+}
+function updateRefsShift() {
+  animateRefsShift(refsVisible() ? -220 : 0);
 }
 function mcpConfigs() {
   const m = loadSettings().mcp;
@@ -620,14 +651,14 @@ function applyCanvas() {
   const fa = { x: a.x, y: a.y, w: a.w, h: a.h };
   const w = Math.round(fa.w * canvas.zoom);
   const h = Math.round(fa.h * canvas.zoom);
-  let x = fa.x + Math.round((fa.w - w) / 2) + canvas.x;
+  let x = fa.x + Math.round((fa.w - w) / 2) + canvas.x + refsShift;
   let y = fa.y + Math.round((fa.h - h) / 2) + canvas.y;
   x = Math.min(Math.max(x, fa.x - w + 120), fa.x + fa.w - 120);
   y = Math.min(Math.max(y, fa.y - h + 120), fa.y + fa.h - 120);
   if (multiCanvas && pageInMain) {
     // every tab side by side on the same canvas
     const GAP = 40;
-    const baseX = fa.x + Math.round((fa.w - w) / 2) + canvas.x;
+    const baseX = fa.x + Math.round((fa.w - w) / 2) + canvas.x + refsShift;
     const baseY = fa.y + Math.round((fa.h - h) / 2) + canvas.y;
     tabs.forEach((t, i) => {
       try { t.view.setBounds({ x: baseX + i * (w + GAP), y: baseY, width: w, height: h }); } catch {}
@@ -830,6 +861,8 @@ function resetToWelcome() {
 function openHome() {
   if (quitting) return;
   if (settingsModal) { settingsModal = false; overlaySend('ui:closeSettings', {}); }
+  if (refsShiftTimer) { clearInterval(refsShiftTimer); refsShiftTimer = null; }
+  refsShift = 0;
   homeMode = true;
   broadcastTabs();
   if (panelOpen) setPanelOpen(false); // the dashboard owns the window
@@ -979,6 +1012,11 @@ async function attachDevServerUrl(input, folder) {
   devState.folder = project;
   devState.projectFolder = project;
   devState.external = true;
+  if (refsStore) {
+    refsStore.setProject(project);
+    refsOpen = refsStore.items.length > 0;
+    refsSend();
+  }
   pushDevLog(`withlook: attaching to ${url} — edits apply to the project folder`);
   markServerReady(port, { external: true, url });
   return { ok: true, port, url };
@@ -1003,6 +1041,7 @@ function markServerReady(port, opts = {}) {
   for (const t of tabs) {
     try { t.view.webContents.loadURL(localUrl.replace(/\/+$/, '') + t.route).catch(() => {}); } catch {}
   }
+  updateRefsShift();
 }
 
 // ---------- dev server ----------
@@ -1071,6 +1110,8 @@ function killProc(proc) {
 function stopDev(keepView) {
   projectLoaded = false;
   tabMenuOpen = false; // the top-bar dropdowns close with the project
+  if (refsShiftTimer) { clearInterval(refsShiftTimer); refsShiftTimer = null; }
+  refsShift = 0;
   if (!keepView) closeExtraTabs(); // a restart (keepView) reloads its tabs when the server returns
   if (createProc) { createCancelled = true; killProc(createProc); createProc = null; }
   if (devProc) { killProc(devProc); devProc = null; }
@@ -1101,6 +1142,11 @@ async function startDev(folder) {
   if (tabs[0]) tabs[0].route = '/'; // a new project always starts at its root, never the previous route
   const settings = loadSettings();
   devState.projectFolder = folder;
+  if (refsStore) {
+    refsStore.setProject(folder);
+    refsOpen = refsStore.items.length > 0;
+    refsSend();
+  }
   // reopening a project whose dev server is still running should attach, not start a second one
   const early = await findExistingDevServer(folder, frameworks.portsFor(folder));
   if (early) {
@@ -1109,11 +1155,6 @@ async function startDev(folder) {
     devState.framework = { id: fw0.id, name: fw0.name };
     attachDevServer(early, folder);
     return;
-  }
-  if (refsStore) {
-    refsStore.setProject(folder);
-    refsOpen = refsStore.items.length > 0;
-    refsSend();
   }
   let runFolder = folder;
   const sandboxBase = () => path.join(app.getPath('userData'), 'worktrees');
@@ -1424,10 +1465,27 @@ async function gitSharePatch(mode) {
 }
 
 // ---------- pages (route list from the detected framework) ----------
+let lastRoutesLog = '';
 async function listPages() {
+  const candidates = [
+    devState.folder,
+    devState.projectFolder,
+    devState.sandbox && devState.sandbox.projectPath,
+    devState.sandbox && devState.sandbox.folder,
+  ].filter(Boolean);
+  for (const folder of [...new Set(candidates)]) {
+    try {
+      const routes = await frameworks.listRoutes(folder);
+      if (routes.length) { lastRoutesLog = ''; return routes; }
+    } catch {}
+  }
   const folder = devState.folder;
-  if (!folder) return [];
-  try { return await frameworks.listRoutes(folder); } catch { return []; }
+  if (folder) {
+    const hint = fs.existsSync(path.join(folder, 'apps')) ? ' — this looks like a monorepo root; open apps/<app> for route tabs' : '';
+    const msg = `withlook: no routes found in ${folder}${hint}`;
+    if (msg !== lastRoutesLog) { lastRoutesLog = msg; pushDevLog(msg); }
+  }
+  return [];
 }
 
 // ---------- opencode discovery ----------
@@ -2218,21 +2276,22 @@ function wireIpc() {
     const m = url.match(/^data:image\/[a-z0-9.+-]+;base64,(.+)$/i);
     if (!m) return { ok: false, error: 'Not an image.', ...refsState() };
     if (m[1].length > 24 * 1024 * 1024) return { ok: false, error: 'Image is too large.', ...refsState() };
-    const r = refsStore.addBuffer(Buffer.from(m[1], 'base64'), String((d && d.name) || 'image.png'));
-    if (r.ok) { refsOpen = true; refsSend(); }
+    const r = refsStore.addBuffer(Buffer.from(m[1], 'base64'), String((d && d.name) || 'image.png'), newRefPlace());
+    if (r.ok) { refsOpen = true; refsSend(); updateRefsShift(); }
     return { ok: r.ok, error: r.error, ...refsState() };
   });
   ipcMain.handle('refs:paste', () => {
     if (!refsStore) return { ok: false, error: 'No project.', ...refsState() };
     const img = clipboard.readImage();
     if (img.isEmpty()) return { ok: false, error: 'No image in the clipboard.', ...refsState() };
-    const r = refsStore.addBuffer(img.toPNG(), 'pasted image.png');
-    if (r.ok) { refsOpen = true; refsSend(); }
+    const r = refsStore.addBuffer(img.toPNG(), 'pasted image.png', newRefPlace());
+    if (r.ok) { refsOpen = true; refsSend(); updateRefsShift(); }
     return { ok: r.ok, error: r.error, ...refsState() };
   });
   ipcMain.handle('refs:remove', (_e, id) => {
     if (refsStore) refsStore.remove(String(id));
     refsSend();
+    updateRefsShift();
     return refsState();
   });
   ipcMain.handle('refs:toggle', (_e, id) => {
@@ -2243,6 +2302,7 @@ function wireIpc() {
   ipcMain.handle('refs:tray', (_e, open) => {
     refsOpen = !!open;
     refsSend();
+    updateRefsShift();
     return refsState();
   });
   // canvas card drag/resize (renderer → main, no reply)
@@ -2296,11 +2356,12 @@ function wireIpc() {
       if (!r.ok) return r;
       let refId = null;
       if (r.image && r.image.data && refsStore) {
-        const add = refsStore.addBuffer(Buffer.from(r.image.data, 'base64'), `figma-${r.nodeId.replace(':', '-')}.png`);
+        const add = refsStore.addBuffer(Buffer.from(r.image.data, 'base64'), `figma-${r.nodeId.replace(':', '-')}.png`, newRefPlace());
         if (add.ok) {
           refId = add.item.id;
           refsOpen = true;
           refsSend();
+          updateRefsShift();
         }
       }
       pushDevLog(`withlook: imported Figma frame ${r.nodeId} (${r.tools.join(', ')})`);
