@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('wl', {
   sessionsLoad: (id) => ipcRenderer.invoke('sessions:load', id),
   messagesAppend: (m) => ipcRenderer.invoke('messages:append', m),
   setPanel: (open) => ipcRenderer.invoke('ui:panel', open),
+  pillHeight: (h) => ipcRenderer.send('ui:pillHeight', h),
   settingsModal: (open) => ipcRenderer.invoke('ui:settingsModal', open),
   sendChat: (payload) => ipcRenderer.invoke('chat:send', payload),
   stopChat: (id) => ipcRenderer.invoke('chat:stop', id),

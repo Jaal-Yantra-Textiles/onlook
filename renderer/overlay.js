@@ -125,6 +125,19 @@ function applyMode(m) {
   els.panel.hidden = !(state.panelOpen || state.dock);
   if (els.previewLabel) els.previewLabel.textContent = state.previewOut ? 'dock preview back' : 'pop out preview';
   els.collapse.textContent = state.dock ? 'float' : '–';
+  autoGrow();
+}
+function autoGrow() {
+  const q = els.quick;
+  if (!q) return;
+  const max = 160;
+  q.style.height = 'auto';
+  const h = Math.min(Math.max(30, q.scrollHeight), max);
+  q.style.height = h + 'px';
+  q.style.overflowY = q.scrollHeight > max ? 'auto' : 'hidden';
+  if (els.pill && window.wl.pillHeight && !state.dock && !state.panelOpen) {
+    window.wl.pillHeight(Math.ceil(els.pill.getBoundingClientRect().height));
+  }
 }
 window.wl.onUiMode((m) => applyMode(m));
 function scrollBottom() { els.messages.scrollTop = els.messages.scrollHeight; }
@@ -279,6 +292,7 @@ async function send(textArg) {
   if (!text || state.streaming) return;
   if (!state.panelOpen) await setPanel(true);
   els.quick.value = '';
+  autoGrow();
   state.history.push({ role: 'user', content: text });
   addMsg('user', text);
   const sid = await ensureSession();
@@ -1144,10 +1158,12 @@ els.newChat.onclick = () => { clearChat(); state.sessionId = null; };
 els.pick.onclick = pickNow;
 els.addPick.onclick = pickNow;
 els.send.onclick = () => (state.streaming ? window.wl.stopChat(state.streamId) : send());
+els.quick.addEventListener('input', autoGrow);
 els.quick.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); state.streaming ? window.wl.stopChat(state.streamId) : send(); }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); state.streaming ? window.wl.stopChat(state.streamId) : send(); }
   if (e.key === 'Escape') { if (state.picking) window.wl.cancelPicker(); else { els.quick.blur(); if (state.panelOpen) setPanel(false); } }
 });
+window.addEventListener('resize', autoGrow);
 // typing stays in the floating pill — the panel opens on Enter (send), not on focus
 
 els.settingsBtn.onclick = () => (state.settingsOpen ? closeSettings() : openSettings());
@@ -1460,4 +1476,5 @@ document.addEventListener('keydown', (e) => {
   els.devLogs.textContent = (logs || []).join('\n');
   const info = await window.wl.pageInfo();
   if (info) window.wl.onPageNav && (state.pageUrl = info.url);
+  autoGrow();
 })();

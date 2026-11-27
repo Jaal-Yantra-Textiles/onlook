@@ -24,6 +24,7 @@ process.stderr.on('error', () => {});
 // ---------- constants ----------
 const OVERLAY_W = 780;
 const PILL_H = 52;
+let pillH = PILL_H; // the floating pill grows with the composer
 const TOP_GAP = 10;
 const PANEL_VIEW_H = 660;
 const SMOKE = process.argv.includes('--smoke');
@@ -776,7 +777,7 @@ function layout() {
   }
   const w = Math.min(OVERLAY_W, W - 24);
   const yBase = TAB_BAR_H + TOP_GAP; // everything sits below the app top bar
-  const h = panelOpen ? Math.min(PANEL_VIEW_H, H - yBase - 16) : PILL_H;
+  const h = panelOpen ? Math.min(PANEL_VIEW_H, H - yBase - 16) : pillH;
   overlayView.setBounds({
     x: Math.round((W - w) / 2),
     y: yBase,
@@ -2423,6 +2424,12 @@ function wireIpc() {
   });
   ipcMain.handle('ui:panel', (_e, open) => setPanelOpen(open));
   ipcMain.handle('ui:settingsModal', (_e, open) => { settingsModal = !!open; layout(); return true; });
+  ipcMain.on('ui:pillHeight', (_e, h) => {
+    const next = Math.max(PILL_H, Math.min(220, Math.round(Number(h) || PILL_H)));
+    if (next === pillH) return;
+    pillH = next;
+    if (!panelOpen && !dockMode) layout();
+  });
   ipcMain.handle('chat:send', handleChatSend);
   ipcMain.handle('chat:stop', (_e, id) => {
     const c = chatAborts.get(id);
