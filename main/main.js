@@ -226,8 +226,8 @@ function layoutRefCards() {
   const zoom = canvas.zoom || 1;
   const pageW = Math.round(a.w * zoom);
   const pageH = Math.round(a.h * zoom);
-  const originX = a.x + Math.round((a.w - pageW) / 2) + canvas.x;
-  const originY = a.y + Math.round((a.h - pageH) / 2) + canvas.y;
+  const originX = a.x + Math.round((a.w - pageW) / 2);
+  const originY = a.y + Math.round((a.h - pageH) / 2);
   for (const [id, view] of refCards) {
     const item = refsStore && refsStore.items.find((i) => i.id === id);
     if (!item) continue;

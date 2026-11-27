@@ -29,6 +29,33 @@ function encode(img) {
   };
 }
 
+function cardSize(width, height) {
+  const w0 = Number(width) || 0;
+  const h0 = Number(height) || 0;
+  if (!w0 || !h0) return { w: 200, h: 150 };
+  const s = 240 / Math.max(w0, h0);
+  return { w: Math.max(80, Math.round(w0 * s)), h: Math.max(60, Math.round(h0 * s)) };
+}
+
+// first free cell in a 4-column grid, so new references never land on top of each other
+function nextSlot(items, w, h) {
+  const gap = 14;
+  const stepX = 260;
+  const stepY = 260;
+  const hits = (x, y) => items.some((it) => !(
+    x + w + gap <= it.x || it.x + it.w + gap <= x ||
+    y + h + gap <= it.y || it.y + it.h + gap <= y
+  ));
+  for (let row = 0; row < 20; row++) {
+    for (let col = 0; col < 4; col++) {
+      const x = 28 + col * stepX;
+      const y = 28 + row * stepY;
+      if (!hits(x, y)) return { x, y };
+    }
+  }
+  return { x: 28, y: 28 + items.length * stepY };
+}
+
 class References {
   constructor(userDataPath) {
     this.file = path.join(userDataPath, 'references.json');
@@ -61,15 +88,17 @@ class References {
       const enc = encode(img);
       if (!enc) return null;
       const num = (v, d) => (Number.isFinite(v) ? v : d);
+      const size = cardSize(enc.width, enc.height);
+      const slot = nextSlot(this.items, size.w, size.h);
       return {
         id: saved.id || crypto.randomUUID(),
         path: saved.path,
         name: saved.name || path.basename(saved.path),
         include: saved.include !== false,
-        x: num(saved.x, 28 + (index % 3) * 210),
-        y: num(saved.y, 28 + Math.floor(index / 3) * 170),
-        w: num(saved.w, 200),
-        h: num(saved.h, 150),
+        x: num(saved.x, slot.x),
+        y: num(saved.y, slot.y),
+        w: num(saved.w, size.w),
+        h: num(saved.h, size.h),
         ...enc,
       };
     } catch { return null; }
@@ -86,10 +115,11 @@ class References {
       const ext = /^\.(png|jpe?g|webp|gif|bmp)$/i.test(path.extname(file)) ? path.extname(file).toLowerCase() : '.png';
       const dest = path.join(this.assets, id + ext);
       fs.copyFileSync(file, dest); // keep our own copy — the original can move
-      const n = this.items.length;
+      const size = cardSize(enc.width, enc.height);
+      const slot = nextSlot(this.items, size.w, size.h);
       const item = {
         id, path: dest, name: path.basename(file), include: true,
-        x: 28 + (n % 3) * 210, y: 28 + Math.floor(n / 3) * 170, w: 200, h: 150,
+        x: slot.x, y: slot.y, w: size.w, h: size.h,
         ...enc,
       };
       this.items.push(item);
@@ -110,10 +140,11 @@ class References {
       const id = crypto.randomUUID();
       const dest = path.join(this.assets, id + '.png');
       fs.writeFileSync(dest, buffer);
-      const n = this.items.length;
+      const size = cardSize(enc.width, enc.height);
+      const slot = nextSlot(this.items, size.w, size.h);
       const item = {
         id, path: dest, name: name || 'image.png', include: true,
-        x: 28 + (n % 3) * 210, y: 28 + Math.floor(n / 3) * 170, w: 200, h: 150,
+        x: slot.x, y: slot.y, w: size.w, h: size.h,
         ...enc,
       };
       this.items.push(item);
@@ -148,8 +179,8 @@ class References {
     if (!item) return null;
     if (Number.isFinite(patch.x)) item.x = Math.max(-2000, Math.min(4000, patch.x));
     if (Number.isFinite(patch.y)) item.y = Math.max(-2000, Math.min(4000, patch.y));
-    if (Number.isFinite(patch.w)) item.w = Math.max(140, Math.min(520, patch.w));
-    if (Number.isFinite(patch.h)) item.h = Math.max(100, Math.min(420, patch.h));
+    if (Number.isFinite(patch.w)) item.w = Math.max(80, Math.min(520, patch.w));
+    if (Number.isFinite(patch.h)) item.h = Math.max(60, Math.min(420, patch.h));
     return item;
   }
 
@@ -174,4 +205,4 @@ class References {
   }
 }
 
-module.exports = { References, MAX_REFS };
+module.exports = { References, MAX_REFS, cardSize, nextSlot };

@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert');
-const { References, MAX_REFS } = require('../main/references');
+const { References, MAX_REFS, cardSize, nextSlot } = require('../main/references');
 
 // 1×1 transparent PNG
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
@@ -73,8 +73,16 @@ app.whenReady().then(() => {
     assert.equal(rBox.items[0].h, 200);
     // clamped
     rBox.setBox(rBox.items[0].id, { w: 10, h: 10 });
-    assert.equal(rBox.items[0].w, 140);
-    assert.equal(rBox.items[0].h, 100);
+    assert.equal(rBox.items[0].w, 80);
+    assert.equal(rBox.items[0].h, 60);
+
+    // new cards keep the image ratio and never overlap
+    assert.deepEqual(cardSize(1000, 500), { w: 240, h: 120 });
+    assert.deepEqual(cardSize(500, 1000), { w: 120, h: 240 });
+    assert.deepEqual(cardSize(1, 1), { w: 240, h: 240 });
+    const s1 = nextSlot([], 200, 150);
+    const s2 = nextSlot([{ x: s1.x, y: s1.y, w: 200, h: 150 }], 200, 150);
+    assert.notDeepEqual(s1, s2);
 
     // cap
     for (let i = 0; i < MAX_REFS + 3; i++) r2.addBuffer(PNG, `x${i}.png`);
