@@ -2,135 +2,121 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <link rel="stylesheet" href="elements.css" />
   <style>
-    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
-    body { font-family: ui-sans-serif, -apple-system, 'Inter', system-ui, sans-serif; }
+    html, body { background: transparent; overflow: hidden; }
     .bar {
       height: 38px; box-sizing: border-box; margin: 0; display: flex; align-items: center; gap: 6px; padding: 0 10px;
-      border-bottom: 1px solid #1f1f23;
-      background: #0b0b0e;
+      border-bottom: 1px solid var(--wl-line-soft);
+      background: var(--wl-bg-bar);
       position: relative; z-index: 2;
     }
     body.mac .bar { padding-left: 86px; } /* clear the traffic-light buttons */
     body.home #add, body.home #a-new, body.home #a-history, body.home #changes,
     body.home #sidebar, body.home #chat, body.home #sandbox { display: none; }
-    body.home #home { background: #27272a; border-color: #3f3f46; color: #fafafa; }
+    body.home #home { background: var(--wl-line); border-color: var(--wl-line-strong); color: var(--wl-accent); }
     body.loading #add, body.loading #sandbox, body.loading #changes,
     body.loading #a-new, body.loading #a-history,
     body.loading #sidebar, body.loading #chat { display: none; }
-    .loading-label { display: flex; align-items: center; gap: 8px; color: #71717a; font-size: 11.5px; padding: 0 4px; }
-    .loading-label .spin { width: 12px; height: 12px; border: 2px solid #27272a; border-top-color: #a1a1aa;
-      border-radius: 50%; animation: spin 0.8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .act.on { background: #27272a; border-color: #3f3f46; color: #fafafa; }
-    .home-label { color: #a1a1aa; font-size: 11.5px; font-weight: 600; padding: 0 4px; }
+    .loading-label { display: flex; align-items: center; gap: 8px; color: var(--wl-text-muted); font-size: 11.5px; padding: 0 4px; }
+    .act.on { background: var(--wl-line); border-color: var(--wl-line-strong); color: var(--wl-accent); }
+    .home-label { color: var(--wl-text-dim); font-size: 11.5px; font-weight: 600; padding: 0 4px; }
     #backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 1; }
     #tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; }
     #tabs::-webkit-scrollbar { display: none; }
     .tab {
       display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
-      background: #18181b; border: 1px solid #27272a;
-      color: #a1a1aa; border-radius: 8px; font-size: 11.5px; padding: 4px 10px;
+      background: var(--wl-surface-3); border: 1px solid var(--wl-line);
+      color: var(--wl-text-dim); border-radius: var(--wl-r-sm); font-size: 11.5px; padding: 4px 10px;
       max-width: 180px; white-space: nowrap; flex: 0 0 auto;
+      transition: background var(--wl-dur) ease, border-color var(--wl-dur) ease, color var(--wl-dur) ease;
     }
-    .tab .route { overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
-    .tab.on { background: #27272a; border-color: #3f3f46; color: #fafafa; }
+    .tab .route { overflow: hidden; text-overflow: ellipsis; font-family: var(--wl-mono); font-size: 10.5px; }
+    .tab.on { background: var(--wl-line); border-color: var(--wl-line-strong); color: var(--wl-accent); }
     .tab:hover { background: #232326; }
-    .tab .x { background: none; border: 0; color: #71717a; font-size: 12px; cursor: pointer; padding: 0; line-height: 1; font-family: inherit; }
-    .tab .x:hover { color: #f87171; }
-    .add {
-      background: none; border: 1px dashed #3f3f46; color: #71717a; flex: 0 0 auto;
-      border-radius: 8px; font-size: 14px; width: 26px; height: 26px; cursor: pointer; line-height: 1;
-    }
-    .add:hover { color: #fafafa; border-color: #52525b; }
-    .act {
-      flex: 0 0 auto; background: #18181b; border: 1px solid #27272a; color: #a1a1aa;
-      border-radius: 8px; font-size: 12px; width: 26px; height: 26px; cursor: pointer; line-height: 1;
-      display: inline-flex; align-items: center; justify-content: center;
-    }
-    .act:hover { color: #fafafa; border-color: #3f3f46; }
-    .changes {
-      flex: 0 0 auto; background: #18181b; border: 1px solid #27272a; color: #a1a1aa;
-      border-radius: 8px; font-size: 10.5px; padding: 5px 10px; cursor: pointer;
-      font-family: ui-monospace, Menlo, monospace; white-space: nowrap;
-    }
-    .changes:hover { color: #fafafa; border-color: #3f3f46; }
-    .changes .n { color: #fafafa; font-weight: 600; }
-    .sandbox-chip { color: #9db4d8; border-color: rgba(110,168,255,0.35); background: rgba(110,168,255,0.07); }
-    .sandbox-chip:hover { color: #dfe8ff; border-color: rgba(110,168,255,0.55); }
+    .tab .x { background: none; border: 0; color: var(--wl-text-muted); font-size: 12px; cursor: pointer; padding: 0; line-height: 1; font-family: inherit; }
+    .tab .x:hover { color: var(--wl-red); }
+    .add { border-style: dashed; color: var(--wl-text-muted); }
+    .add:hover { color: var(--wl-accent); border-color: var(--wl-text-ghost); }
+    .act { flex: 0 0 auto; }
+    .changes { flex: 0 0 auto; font-family: var(--wl-mono); color: var(--wl-text-dim); }
+    .changes:hover { color: var(--wl-accent); }
+    .changes .n { color: var(--wl-accent); font-weight: 600; }
+    .sandbox-chip { color: var(--wl-blue-dim); border-color: var(--wl-blue-line); background: var(--wl-blue-bg); }
+    .sandbox-chip:hover { color: var(--wl-blue-text); border-color: rgba(110,168,255,0.55); }
     .menu {
       position: absolute; top: 40px; min-width: 230px; max-width: 340px; max-height: 320px; overflow-y: auto;
-      background: #0f0f12; border: 1px solid #27272a; border-radius: 10px;
-      box-shadow: 0 14px 36px rgba(0,0,0,0.55); padding: 6px; z-index: 5;
+      z-index: 5;
     }
     #menu { left: 12px; }
     #changes-menu { right: 12px; width: 380px; max-width: 380px; max-height: min(70vh, 560px);
       display: flex; flex-direction: column; overflow: hidden; padding: 0; }
     .git-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
-      padding: 11px 13px; border-bottom: 1px solid #1f1f23; background: #0c0c0f; }
-    .git-title { font-size: 12px; font-weight: 650; color: #f4f4f5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .git-branch { margin-top: 3px; font-size: 10px; color: #5ce1c7; font-family: ui-monospace, Menlo, monospace;
+      padding: 11px 13px; border-bottom: 1px solid var(--wl-line-soft); background: var(--wl-input); }
+    .git-title { font-size: 12px; font-weight: 650; color: var(--wl-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .git-branch { margin-top: 3px; font-size: 10px; color: var(--wl-mint); font-family: var(--wl-mono);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .git-count { font-size: 10px; color: #71717a; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
+    .git-count { font-size: 10px; color: var(--wl-text-muted); white-space: nowrap; font-family: var(--wl-mono); }
     .git-list { flex: 1; min-height: 0; overflow-y: auto; padding: 5px; }
-    .git-list::-webkit-scrollbar { width: 7px; }
-    .git-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
     #sandbox-menu { right: 12px; }
     .menu button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-      background: none; border: 0; color: #d4d4d8; font-family: ui-monospace, Menlo, monospace;
+      background: none; border: 0; color: var(--wl-text-2); font-family: var(--wl-mono);
       font-size: 11px; padding: 6px 9px; border-radius: 7px; cursor: pointer; }
-    .menu button:hover { background: #18181b; }
+    .menu button:hover { background: var(--wl-surface-3); }
     .menu .st { font-weight: 700; flex: 0 0 12px; text-align: center; }
-    .menu .st.M { color: #fafafa; } .menu .st.A, .menu .st.U { color: #5ce1c7; } .menu .st.D { color: #f87171; }
+    .menu .st.M { color: var(--wl-accent); } .menu .st.A, .menu .st.U { color: var(--wl-mint); } .menu .st.D { color: var(--wl-red); }
     .menu .p { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .menu .d { color: #71717a; font-size: 9.5px; }
-    .menu .sep { height: 1px; background: #1f1f23; margin: 4px 6px; }
-    .menu .lbl { color: #71717a; font-size: 10px; padding: 4px 9px 2px; text-transform: uppercase; letter-spacing: .06em; font-family: -apple-system, system-ui, sans-serif; }
-    .menu .none { color: #71717a; font-size: 11px; padding: 6px 9px; }
+    .menu .d { color: var(--wl-text-muted); font-size: 9.5px; }
+    .menu .sep { height: 1px; background: var(--wl-line-soft); margin: 4px 6px; }
+    .menu .lbl { color: var(--wl-text-muted); font-size: 10px; padding: 4px 9px 2px; text-transform: uppercase; letter-spacing: .06em; font-family: var(--wl-font); }
+    .menu .none { color: var(--wl-text-muted); font-size: 11px; padding: 6px 9px; }
     .commit { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 11px;
-      border-top: 1px solid #1f1f23; background: #0c0c0f; }
-    .commit input { width: 100%; flex: none; background: #0a0c10; border: 1px solid #27272a; border-radius: 8px;
-      color: #f4f4f5; font-size: 11.5px; padding: 8px 10px; outline: none; font-family: inherit; }
-    .commit input:focus { border-color: #52525b; box-shadow: 0 0 0 3px rgba(250,250,250,0.05); }
+      border-top: 1px solid var(--wl-line-soft); background: var(--wl-input); }
+    .commit input { width: 100%; flex: none; background: var(--wl-code); border: 1px solid var(--wl-line); border-radius: var(--wl-r-sm);
+      color: var(--wl-text); font-size: 11.5px; padding: 8px 10px; outline: none; font-family: inherit; }
+    .commit input:focus { border-color: #52525b; box-shadow: var(--wl-ring); }
     .commit-actions { display: flex; gap: 8px; }
-    .commit-actions .commit-all { flex: 1 1 0; width: auto; white-space: nowrap; background: #fafafa; color: #09090b; border: 1px solid #fafafa;
-      border-radius: 8px; font-size: 11.5px; font-weight: 600; padding: 8px 12px; cursor: pointer; font-family: inherit; }
-    .commit-actions .commit-all:hover { background: #e4e4e7; }
+    .commit-actions .commit-all { flex: 1 1 0; width: auto; white-space: nowrap; background: var(--wl-accent); color: var(--wl-on-accent); border: 1px solid var(--wl-accent);
+      border-radius: var(--wl-r-sm); font-size: 11.5px; font-weight: 600; padding: 8px 12px; cursor: pointer; font-family: inherit; }
+    .commit-actions .commit-all:hover { background: var(--wl-accent-hover); }
     .commit-actions .commit-all:disabled { opacity: 0.45; cursor: default; }
-    .commit-actions .push { flex: 0 0 auto; width: auto; white-space: nowrap; background: #18181b; color: #f4f4f5; border: 1px solid #27272a;
-      border-radius: 8px; font-size: 11.5px; font-weight: 550; padding: 8px 14px; cursor: pointer; font-family: inherit; }
-    .commit-actions .push:hover { background: #232326; border-color: #3f3f46; }
+    .commit-actions .push { flex: 0 0 auto; width: auto; white-space: nowrap; background: var(--wl-surface-3); color: var(--wl-text); border: 1px solid var(--wl-line);
+      border-radius: var(--wl-r-sm); font-size: 11.5px; font-weight: 550; padding: 8px 14px; cursor: pointer; font-family: inherit; }
+    .commit-actions .push:hover { background: #232326; border-color: var(--wl-line-strong); }
     .commit-actions .push:disabled { opacity: 0.45; cursor: default; }
     .commit .commit-status { padding: 0; font-size: 10px; min-height: 13px; }
     .commit .commit-status:empty { display: none; }
-    .commit-status { color: #71717a; font-size: 10.5px; padding: 2px 9px 6px; font-family: ui-monospace, Menlo, monospace; word-break: break-word; }
-    .commit-status.err { color: #f87171; }
-    .commit-status.ok { color: #5ce1c7; }
+    .commit-status { color: var(--wl-text-muted); font-size: 10.5px; padding: 2px 9px 6px; font-family: var(--wl-mono); word-break: break-word; }
+    .commit-status.err { color: var(--wl-red); }
+    .commit-status.ok { color: var(--wl-mint); }
   </style>
 </head>
 <body>
   <div id="backdrop" hidden></div>
   <div class="bar">
-    <button class="act" id="home" title="Home — recent projects">
+    <button class="wl-btn icon act" id="home" title="Home — recent projects">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>
     </button>
-    <button class="act" id="sidebar" title="Toggle sidebar (⌘B)">
+    <button class="wl-btn icon act" id="sidebar" title="Toggle sidebar (⌘B)">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16M13 10l-2 2 2 2"/></svg>
     </button>
-    <button class="act" id="chat" title="Toggle chat (⌘⇧J)">
+    <button class="wl-btn icon act" id="chat" title="Toggle chat (⌘⇧J)">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/></svg>
     </button>
-    <button class="add" id="add" title="Open a page as a new tab">+</button>
+    <button class="wl-btn icon add" id="add" title="Open a page as a new tab">+</button>
     <div id="tabs"></div>
-    <button class="act" id="a-new" title="New chat">＋</button>
-    <button class="act" id="a-history" title="Past conversations">⏱</button>
-    <button class="act" id="a-settings" title="Settings (⌘,)">⚙</button>
-    <button class="changes" id="sandbox" title="Sandbox — your project folder is untouched" hidden>⧉ sandbox</button>
-    <button class="changes" id="changes" title="Working-tree changes">⎇ …</button>
+    <button class="wl-btn icon act" id="a-new" title="New chat">＋</button>
+    <button class="wl-btn icon act" id="a-history" title="Past conversations">⏱</button>
+    <button class="wl-btn icon act" id="a-connectors" title="Connectors (MCP)" aria-label="Connectors">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v6M15 3v6M6 9h12v3a6 6 0 0 1-12 0V9z"/><path d="M12 18v3"/></svg>
+    </button>
+    <button class="wl-btn icon act" id="a-settings" title="Settings (⌘,)">⚙</button>
+    <button class="wl-btn sm changes sandbox-chip" id="sandbox" title="Sandbox — your project folder is untouched" hidden>⧉ sandbox</button>
+    <button class="wl-btn sm changes" id="changes" title="Working-tree changes">⎇ …</button>
   </div>
-  <div class="menu" id="menu" hidden></div>
-  <div class="menu" id="changes-menu" hidden></div>
-  <div class="menu" id="sandbox-menu" hidden></div>
+  <div class="menu wl-menu" id="menu" hidden></div>
+  <div class="menu wl-menu" id="changes-menu" hidden></div>
+  <div class="menu wl-menu" id="sandbox-menu" hidden></div>
   <script>
     if (navigator.userAgent.includes('Mac')) document.body.classList.add('mac');
     function act(a, d) { if (window.wl && window.wl.canvasAction) window.wl.canvasAction(a, d); }
@@ -164,7 +150,7 @@
           const label = document.createElement('span');
           label.className = 'loading-label';
           const sp = document.createElement('span');
-          sp.className = 'spin';
+          sp.className = 'wl-spinner';
           label.appendChild(sp);
           label.appendChild(document.createTextNode(
             state.phase === 'error' ? 'Project failed to load'
@@ -199,6 +185,7 @@
       document.getElementById('a-new').onclick = () => act('newChat');
       document.getElementById('a-history').onclick = () => act('history');
       document.getElementById('a-settings').onclick = () => act('settings');
+      document.getElementById('a-connectors').onclick = () => act('connectors');
 
       const currentRoute = () => state.tabs[state.active] || '/';
       const backdrop = document.getElementById('backdrop');

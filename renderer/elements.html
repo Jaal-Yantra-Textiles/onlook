@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>withlook · elements</title>
+  <link rel="stylesheet" href="elements.css" />
+  <style>
+    body { background: var(--wl-bg); padding: 32px; overflow: auto; }
+    .wrap { max-width: 940px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+    header { display: flex; align-items: center; gap: 11px; }
+    .logo { width: 26px; height: 26px; border-radius: 8px;
+      background: conic-gradient(from 210deg, var(--wl-blue), var(--wl-violet), var(--wl-mint), var(--wl-blue));
+      box-shadow: 0 4px 16px rgba(110,168,255,0.35); }
+    h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+    .sub { color: var(--wl-text-muted); font-size: var(--wl-fs-md); margin-top: 2px; }
+    section { border-top: 1px solid var(--wl-line-soft); padding-top: 16px; }
+    h2 { font-size: var(--wl-fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--wl-text-faint); margin: 0 0 12px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .col { display: flex; flex-direction: column; gap: 10px; max-width: 380px; }
+    .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+    .sw { border: 1px solid var(--wl-line); border-radius: var(--wl-r-sm); overflow: hidden; }
+    .sw i { display: block; height: 42px; }
+    .sw span { display: block; padding: 6px 8px; color: var(--wl-text-dim); font: 10px var(--wl-mono); }
+    .type > div { margin-bottom: 7px; }
+    .menu-demo { width: 260px; }
+    .card-demo { padding: 14px 16px; width: 300px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo"></div>
+      <div>
+        <h1>Elements</h1>
+        <div class="sub">withlook tokens and shared controls · loaded from <span class="wl-mono">elements.css</span></div>
+      </div>
+    </header>
+
+    <section>
+      <h2>Surfaces</h2>
+      <div class="swatches">
+        <div class="sw"><i style="background: var(--wl-bg)"></i><span>--wl-bg</span></div>
+        <div class="sw"><i style="background: var(--wl-bg-bar)"></i><span>--wl-bg-bar</span></div>
+        <div class="sw"><i style="background: var(--wl-surface)"></i><span>--wl-surface</span></div>
+        <div class="sw"><i style="background: var(--wl-surface-2)"></i><span>--wl-surface-2</span></div>
+        <div class="sw"><i style="background: var(--wl-surface-3)"></i><span>--wl-surface-3</span></div>
+        <div class="sw"><i style="background: var(--wl-input)"></i><span>--wl-input</span></div>
+        <div class="sw"><i style="background: var(--wl-line)"></i><span>--wl-line</span></div>
+        <div class="sw"><i style="background: var(--wl-line-strong)"></i><span>--wl-line-strong</span></div>
+        <div class="sw"><i style="background: var(--wl-blue)"></i><span>--wl-blue</span></div>
+        <div class="sw"><i style="background: var(--wl-mint)"></i><span>--wl-mint</span></div>
+        <div class="sw"><i style="background: var(--wl-red)"></i><span>--wl-red</span></div>
+        <div class="sw"><i style="background: var(--wl-violet)"></i><span>--wl-violet</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Text</h2>
+      <div class="type">
+        <div style="color: var(--wl-text); font-size: 15px; font-weight: 650">Primary · 650 · 15px</div>
+        <div style="color: var(--wl-text-2)">Secondary text · --wl-text-2</div>
+        <div style="color: var(--wl-text-dim)">Dim text · --wl-text-dim</div>
+        <div style="color: var(--wl-text-muted); font-size: var(--wl-fs-sm)">Muted · --wl-text-muted</div>
+        <div style="color: var(--wl-text-faint); font-size: var(--wl-fs-xs)">Faint · --wl-text-faint · 10px</div>
+        <div class="wl-mono" style="color: var(--wl-text-dim); font-size: var(--wl-fs-sm)">ui-monospace · src/app/page.tsx:42</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Buttons</h2>
+      <div class="row">
+        <button class="wl-btn">Default</button>
+        <button class="wl-btn primary">Primary</button>
+        <button class="wl-btn ghost">Ghost</button>
+        <button class="wl-btn danger">Danger</button>
+        <button class="wl-btn on">On</button>
+        <button class="wl-btn" disabled>Disabled</button>
+      </div>
+      <div class="row" style="margin-top: 10px">
+        <button class="wl-btn sm">Small</button>
+        <button class="wl-btn sm primary">Small primary</button>
+        <button class="wl-btn icon" title="Icon">⚙</button>
+        <button class="wl-btn icon sm" title="Icon small">⟳</button>
+      </div>
+      <div class="row" style="margin-top: 10px; max-width: 340px">
+        <button class="wl-btn block primary">Block primary</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Inputs</h2>
+      <div class="col">
+        <input class="wl-input" placeholder="Project name" />
+        <input class="wl-input mono" value="postgres://postgres@localhost:5432/postgres" />
+        <textarea class="wl-input" rows="2" placeholder="Custom system prompt…"></textarea>
+      </div>
+    </section>
+
+    <section>
+      <h2>Chips, badges, labels</h2>
+      <div class="row">
+        <span class="wl-chip">.src/app/page.tsx</span>
+        <span class="wl-chip muted">no page</span>
+        <span class="wl-badge">server: idle</span>
+        <span class="wl-badge ok">server: running</span>
+        <span class="wl-badge err">load failed</span>
+      </div>
+      <div class="col" style="margin-top: 14px">
+        <label class="wl-label">Section label <span class="dim">(optional)</span></label>
+        <p class="wl-note">Notes sit under fields and explain the consequence, not the mechanic.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Segmented control</h2>
+      <div class="wl-seg" style="max-width: 420px">
+        <button class="on">Direct LLM</button>
+        <button>opencode</button>
+        <button>Local</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Menu</h2>
+      <div class="wl-menu menu-demo">
+        <div class="wl-menu-label">Pages</div>
+        <button class="wl-menu-item"><span class="wl-mono">/</span></button>
+        <button class="wl-menu-item"><span class="wl-mono">/about</span></button>
+        <button class="wl-menu-item"><span class="wl-mono">/blog/:slug</span></button>
+        <div class="wl-menu-sep"></div>
+        <button class="wl-menu-item">New empty tab</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Card, spinner, kbd</h2>
+      <div class="row">
+        <div class="wl-card card-demo">
+          <div style="font-weight: 600; margin-bottom: 4px">Project card</div>
+          <div style="color: var(--wl-text-dim); font-size: var(--wl-fs-sm)">surface · line · radius-lg · shadow-sm</div>
+        </div>
+        <span class="wl-spinner"></span>
+        <span style="color: var(--wl-text-dim); font-size: var(--wl-fs-sm)">Press <kbd class="wl-kbd">⌘</kbd> <kbd class="wl-kbd">E</kbd> to pick an element</span>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

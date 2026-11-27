@@ -1,0 +1,228 @@
+/* withlook elements — single source of truth for tokens, base styles, and shared controls.
+   Loaded first in every renderer view; view-specific CSS may override anything below. */
+:root {
+  color-scheme: dark;
+
+  /* surfaces */
+  --wl-bg: #09090b;
+  --wl-bg-bar: #0b0b0e;
+  --wl-surface: #0f0f12;
+  --wl-surface-2: #141417;
+  --wl-surface-3: #18181b;
+  --wl-input: #0c0c0f;
+  --wl-code: #0a0c10;
+
+  /* lines */
+  --wl-line: #27272a;
+  --wl-line-soft: #1f1f23;
+  --wl-line-strong: #3f3f46;
+
+  /* text */
+  --wl-text: #f4f4f5;
+  --wl-text-2: #d4d4d8;
+  --wl-text-dim: #a1a1aa;
+  --wl-text-muted: #71717a;
+  --wl-text-faint: #5a6580;
+  --wl-text-ghost: #52525b;
+
+  /* accents */
+  --wl-accent: #fafafa;
+  --wl-accent-hover: #e4e4e7;
+  --wl-on-accent: #09090b;
+  --wl-blue: #6ea8ff;
+  --wl-blue-text: #dfe8ff;
+  --wl-blue-dim: #9db4d8;
+  --wl-blue-bg: rgba(110, 168, 255, 0.08);
+  --wl-blue-line: rgba(110, 168, 255, 0.35);
+  --wl-mint: #5ce1c7;
+  --wl-mint-bg: rgba(92, 225, 199, 0.12);
+  --wl-mint-line: rgba(92, 225, 199, 0.5);
+  --wl-violet: #9d7bff;
+  --wl-red: #f87171;
+  --wl-red-text: #ff9c9c;
+  --wl-red-bg: rgba(255, 90, 90, 0.1);
+  --wl-red-line: rgba(255, 90, 90, 0.3);
+
+  /* radii */
+  --wl-r-xs: 6px;
+  --wl-r-sm: 8px;
+  --wl-r-md: 10px;
+  --wl-r-lg: 12px;
+  --wl-r-xl: 15px;
+  --wl-r-full: 999px;
+
+  /* type */
+  --wl-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --wl-font-sans: ui-sans-serif, -apple-system, 'Inter', system-ui, sans-serif;
+  --wl-mono: ui-monospace, Menlo, monospace;
+  --wl-fs-xs: 10px;
+  --wl-fs-sm: 11px;
+  --wl-fs-md: 12px;
+  --wl-fs-lg: 13px;
+
+  /* elevation + motion */
+  --wl-shadow-sm: 0 6px 22px rgba(0, 0, 0, 0.4);
+  --wl-shadow-md: 0 16px 44px rgba(0, 0, 0, 0.55);
+  --wl-shadow-lg: 0 30px 90px rgba(0, 0, 0, 0.72);
+  --wl-ring: 0 0 0 3px rgba(250, 250, 250, 0.06);
+  --wl-ring-strong: 0 0 0 1.5px #52525b;
+  --wl-dur: 140ms;
+
+  /* legacy aliases — existing view styles keep working while they migrate */
+  --bg: var(--wl-bg-bar);
+  --bg-solid: var(--wl-bg);
+  --side: var(--wl-bg-bar);
+  --card: var(--wl-surface);
+  --border: var(--wl-line);
+  --border-soft: var(--wl-line-soft);
+  --line: var(--wl-line);
+  --line-soft: var(--wl-line-soft);
+  --line-strong: var(--wl-line-strong);
+  --fg: var(--wl-text);
+  --text: var(--wl-text);
+  --muted: var(--wl-text-dim);
+  --dim: var(--wl-text-dim);
+  --faint: var(--wl-text-ghost);
+  --accent: var(--wl-accent);
+  --accent-2: var(--wl-text-dim);
+  --teal: var(--wl-mint);
+  --blue: var(--wl-blue);
+  --violet: var(--wl-violet);
+}
+
+/* ---------- base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--wl-font);
+  font-size: var(--wl-fs-md);
+  color: var(--wl-text);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+button { -webkit-app-region: no-drag; }
+svg { flex: 0 0 auto; }
+code, pre, kbd, .wl-mono { font-family: var(--wl-mono); }
+::selection { background: rgba(110, 168, 255, 0.28); }
+:focus-visible { outline: none; box-shadow: var(--wl-ring-strong); }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* ---------- buttons ---------- */
+.wl-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex: 0 0 auto;
+  height: 30px; padding: 0 11px;
+  background: var(--wl-surface-3); border: 1px solid var(--wl-line);
+  border-radius: var(--wl-r-sm); color: var(--wl-text-2);
+  font-size: var(--wl-fs-md); font-weight: 500; line-height: 1;
+  cursor: pointer; white-space: nowrap;
+  transition: background var(--wl-dur) ease, border-color var(--wl-dur) ease, color var(--wl-dur) ease;
+}
+.wl-btn:hover { background: #232326; border-color: var(--wl-line-strong); color: var(--wl-text); }
+.wl-btn:active { transform: translateY(1px); }
+.wl-btn:disabled { opacity: 0.45; cursor: default; transform: none; }
+.wl-btn.primary { background: var(--wl-accent); border-color: var(--wl-accent); color: var(--wl-on-accent); font-weight: 600; }
+.wl-btn.primary:hover { background: var(--wl-accent-hover); border-color: var(--wl-accent-hover); color: var(--wl-on-accent); }
+.wl-btn.ghost { background: transparent; }
+.wl-btn.danger { background: var(--wl-red-bg); border-color: var(--wl-red-line); color: var(--wl-red-text); }
+.wl-btn.danger:hover { background: rgba(255, 90, 90, 0.18); border-color: var(--wl-red-line); color: var(--wl-red-text); }
+.wl-btn.sm { height: 26px; padding: 0 8px; font-size: var(--wl-fs-sm); border-radius: 7px; }
+.wl-btn.icon { width: 30px; height: 30px; padding: 0; }
+.wl-btn.icon.sm { width: 26px; height: 26px; }
+.wl-btn.block { width: 100%; height: 38px; font-size: var(--wl-fs-lg); }
+.wl-btn.on { background: var(--wl-mint-bg); border-color: var(--wl-mint-line); color: var(--wl-mint); }
+
+/* ---------- inputs ---------- */
+.wl-input {
+  width: 100%; height: 34px; padding: 0 11px;
+  background: var(--wl-input); border: 1px solid var(--wl-line);
+  border-radius: var(--wl-r-sm); color: var(--wl-text);
+  font-size: var(--wl-fs-md); outline: none;
+  transition: border-color var(--wl-dur) ease, box-shadow var(--wl-dur) ease;
+}
+.wl-input::placeholder { color: var(--wl-text-faint); }
+.wl-input:focus { border-color: #52525b; box-shadow: var(--wl-ring); }
+.wl-input.mono { font-family: var(--wl-mono); font-size: var(--wl-fs-sm); }
+textarea.wl-input { height: auto; min-height: 64px; padding: 9px 11px; resize: vertical; line-height: 1.55; }
+
+/* ---------- chips, badges, labels, notes ---------- */
+.wl-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 220px;
+  padding: 4px 7px; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--wl-line-strong); border-radius: 7px;
+  color: var(--wl-text-2); font-size: var(--wl-fs-sm); line-height: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wl-chip.muted { background: rgba(255, 255, 255, 0.05); border-color: var(--wl-line); color: var(--wl-text-dim); }
+.wl-chip button { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 0 0 4px; opacity: 0.7; }
+.wl-chip button:hover { opacity: 1; }
+
+.wl-badge {
+  display: inline-flex; align-items: center; padding: 3px 7px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--wl-line-soft);
+  border-radius: var(--wl-r-xs); color: var(--wl-text-dim); font-size: var(--wl-fs-sm);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wl-badge.ok { color: var(--wl-mint); }
+.wl-badge.err { color: var(--wl-red-text); }
+
+.wl-label {
+  display: block; margin: 16px 0 6px; color: var(--wl-text-faint);
+  font-size: var(--wl-fs-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.wl-label:first-child { margin-top: 0; }
+.wl-label .dim { color: var(--wl-text-faint); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.wl-note { margin: 7px 0 0; color: var(--wl-text-faint); font-size: var(--wl-fs-xs); line-height: 1.55; }
+.wl-empty { color: var(--wl-text-dim); font-size: var(--wl-fs-md); text-align: center; line-height: 1.7; }
+
+/* ---------- segmented control ---------- */
+.wl-seg { display: flex; gap: 6px; }
+.wl-seg button {
+  flex: 1; height: 34px; background: var(--wl-input); border: 1px solid var(--wl-line);
+  border-radius: var(--wl-r-sm); color: var(--wl-text-dim); font-size: var(--wl-fs-md); cursor: pointer;
+  transition: background var(--wl-dur) ease, border-color var(--wl-dur) ease, color var(--wl-dur) ease;
+}
+.wl-seg button:hover { color: var(--wl-text); border-color: var(--wl-line-strong); }
+.wl-seg button.on { color: var(--wl-accent); border-color: var(--wl-line-strong); background: var(--wl-line); }
+
+/* ---------- menus ---------- */
+.wl-menu {
+  background: var(--wl-surface); border: 1px solid var(--wl-line);
+  border-radius: var(--wl-r-md); box-shadow: var(--wl-shadow-md); padding: 6px;
+}
+.wl-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 9px; background: none; border: 0; border-radius: 7px;
+  color: var(--wl-text-2); font-size: var(--wl-fs-md); text-align: left; cursor: pointer;
+}
+.wl-menu-item:hover { background: var(--wl-surface-3); color: var(--wl-text); }
+.wl-menu-sep { height: 1px; margin: 4px 6px; background: var(--wl-line-soft); }
+.wl-menu-label {
+  padding: 4px 9px 2px; color: var(--wl-text-muted);
+  font-size: var(--wl-fs-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/* ---------- card, spinner, kbd ---------- */
+.wl-card {
+  background: var(--wl-surface); border: 1px solid var(--wl-line);
+  border-radius: var(--wl-r-lg); box-shadow: var(--wl-shadow-sm);
+}
+.wl-spinner {
+  width: 12px; height: 12px; flex: 0 0 auto; border-radius: 50%;
+  border: 2px solid var(--wl-line); border-top-color: var(--wl-accent);
+  animation: wl-spin 0.8s linear infinite;
+}
+@keyframes wl-spin { to { transform: rotate(360deg); } }
+.wl-kbd {
+  display: inline-block; padding: 1px 5px; background: var(--wl-surface-3);
+  border: 1px solid var(--wl-line); border-bottom-width: 2px; border-radius: 5px;
+  color: var(--wl-text-muted); font-family: var(--wl-mono); font-size: 9.5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wl-spinner { animation-duration: 3s; }
+  .wl-btn:active { transform: none; }
+}

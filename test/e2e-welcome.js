@@ -13,6 +13,7 @@ app.whenReady().then(() => {
   let timer = null;
 
   ipcMain.handle('create:pickLocation', async () => '/tmp/demo-parent');
+  ipcMain.handle('create:templates', () => []);
   ipcMain.handle('create:submit', async () => ({ ok: false, error: 'dry-run' }));
   ipcMain.handle('welcome:data', async () => ({ projects: [], running: { state: 'idle', folder: null } }));
 

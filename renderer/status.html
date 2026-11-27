@@ -3,14 +3,33 @@
 <head>
   <meta charset="utf-8" />
   <title>withlook</title>
+  <link rel="stylesheet" href="elements.css" />
   <style>
     html, body { height: 100%; margin: 0; background: #0b0d12; }
-    body { display: flex; align-items: center; justify-content: center; }
+    body { position: relative; display: grid; place-items: center; overflow: hidden; }
+    /* the stage: a faint dot grid + vignette, visible whenever a frame doesn't fill the canvas */
+    .stage {
+      position: fixed; inset: 0;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1.2px);
+      background-size: 24px 24px;
+      background-position: center;
+      -webkit-mask-image: radial-gradient(120% 100% at 50% 42%, #000 25%, transparent 72%);
+      mask-image: radial-gradient(120% 100% at 50% 42%, #000 25%, transparent 72%);
+    }
+    .vignette {
+      position: fixed; inset: 0;
+      background: radial-gradient(85% 65% at 50% 42%, transparent 45%, rgba(0, 0, 0, 0.5));
+    }
     .w {
+      position: relative;
       font: 600 11px/1 -apple-system, 'SF Pro Text', system-ui, sans-serif;
       color: #1c2230; letter-spacing: 0.35em; text-transform: uppercase;
     }
   </style>
 </head>
-<body><div class="w">withlook</div></body>
+<body>
+  <div class="stage"></div>
+  <div class="vignette"></div>
+  <div class="w">withlook</div>
+</body>
 </html>

@@ -46,6 +46,19 @@ function buildSystemPrompt(settings, ctx, agentMode) {
       }
     });
   }
+  if (ctx && ctx.referenceCount) {
+    s += `\n\nThe user attached ${ctx.referenceCount} reference image${ctx.referenceCount === 1 ? '' : 's'}. ` +
+      `Use ${ctx.referenceCount === 1 ? 'it' : 'them'} as visual guidance for layout, spacing, color, and type — do not copy unrelated content.`;
+  }
+  if (ctx && ctx.figma) {
+    const f = ctx.figma;
+    s += '\n\n## Figma frame imported by the user';
+    if (f.url) s += `\nURL: ${f.url}`;
+    if (f.nodeId) s += `\nNode: ${f.nodeId}`;
+    s += '\nTreat this frame as the design source of truth for layout, spacing, type, and color.';
+    if (f.variables) s += `\n\nFigma variables:\n${String(f.variables).slice(0, 4000)}`;
+    if (f.code) s += `\n\nCode exported from Figma:\n\`\`\`\n${String(f.code).slice(0, 16000)}\n\`\`\``;
+  }
   if (ctx && ctx.writeMode) {
     s += '\n\nWRITE MODE IS ON. When you change code, output each complete modified file as a fenced code block whose info line is the language followed by ` path=<relative-path>`, e.g. ```tsx path=src/app/page.tsx — include the FULL file content so it can be saved directly. The user applies your files with one click.';
   }

@@ -51,6 +51,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Resolve version
+        id: v
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::tag $TAG does not match package.json version $PKG_VERSION — bump package.json, commit, then re-tag"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -61,12 +79,24 @@ jobs:
           sha256sum *.dmg *.zip > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
+          name: withlook v${{ steps.v.outputs.version }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/*.dmg
             dist/*.zip
             dist/SHA256SUMS
           body: |
+            **withlook v${{ steps.v.outputs.version }}** · `${{ steps.v.outputs.short_sha }}` · ${{ steps.v.outputs.date }}
+
             Unsigned builds.
 
-            - macOS (Apple Silicon): right-click the app → **Open** the first time.
-            - Windows (x64): unzip and run `withlook.exe`; choose **More info → Run anyway**.
+            | Platform | Download |
+            | --- | --- |
+            | macOS (Apple Silicon) | [`withlook-${{ steps.v.outputs.version }}-arm64.dmg`](https://github.com/${{ github.repository }}/releases/download/${{ steps.v.outputs.tag }}/withlook-${{ steps.v.outputs.version }}-arm64.dmg) |
+            | Windows (x64) | [`withlook-${{ steps.v.outputs.version }}-win.zip`](https://github.com/${{ github.repository }}/releases/download/${{ steps.v.outputs.tag }}/withlook-${{ steps.v.outputs.version }}-win.zip) |
+            | Checksums | [`SHA256SUMS`](https://github.com/${{ github.repository }}/releases/download/${{ steps.v.outputs.tag }}/SHA256SUMS) |
+
+            - macOS: right-click the app → **Open** the first time.
+            - Windows: unzip and run `withlook.exe`; choose **More info → Run anyway**.
+
+            [All releases](https://github.com/${{ github.repository }}/releases) · [source at ${{ steps.v.outputs.tag }}](https://github.com/${{ github.repository }}/tree/${{ steps.v.outputs.tag }})

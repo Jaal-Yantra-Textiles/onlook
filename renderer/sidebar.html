@@ -2,62 +2,57 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <link rel="stylesheet" href="elements.css" />
   <style>
-    html, body { margin: 0; height: 100%; }
+    html, body { background: transparent; }
     body {
-      background: #09090b; color: #d4d4d8; overflow: hidden;
-      font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; font-size: 12px;
-      display: flex; flex-direction: column; -webkit-font-smoothing: antialiased;
+      background: var(--wl-bg); color: var(--wl-text-2); overflow: hidden;
+      font-family: var(--wl-font); font-size: var(--wl-fs-md);
+      display: flex; flex-direction: column;
     }
-    .head { padding: 16px 14px 10px; border-bottom: 1px solid #27272a; }
-    .proj { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; color: #eef3fb; }
-    .dot { width: 8px; height: 8px; border-radius: 3px; background: linear-gradient(135deg,#6ea8ff,#9d7bff); }
-    .repo { margin-top: 4px; font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: #5a6580;
+    .head { padding: 16px 14px 10px; border-bottom: 1px solid var(--wl-line); }
+    .proj { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; color: var(--wl-text); }
+    .dot { width: 8px; height: 8px; border-radius: 3px; background: linear-gradient(135deg, var(--wl-blue), var(--wl-violet)); }
+    .repo { margin-top: 4px; font-family: var(--wl-mono); font-size: var(--wl-fs-xs); color: var(--wl-text-faint);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .branch { margin-top: 3px; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: #5ce1c7;
+    .branch { margin-top: 3px; font-family: var(--wl-mono); font-size: 10.5px; color: var(--wl-mint);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sb-note { margin-top: 5px; font-size: 9.5px; color: #9db4d8; }
+    .sb-note { margin-top: 5px; font-size: 9.5px; color: var(--wl-blue-dim); }
     .scroller { flex: 1; overflow-y: auto; padding: 10px 10px 14px; }
-    .scroller::-webkit-scrollbar { width: 7px; }
-    .scroller::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
     .sec { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 6px; }
-    .sec .label { color: #5a6580; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-    .sec button { background: none; border: 0; color: #5a6580; font-size: 11px; cursor: pointer; padding: 0; }
-    .sec button:hover { color: #9db4d8; }
+    .sec .label { color: var(--wl-text-faint); font-size: var(--wl-fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .sec button { background: none; border: 0; color: var(--wl-text-faint); font-size: var(--wl-fs-sm); cursor: pointer; padding: 0; }
+    .sec button:hover { color: var(--wl-blue-dim); }
     .file { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; cursor: pointer;
-      background: #0f0f12; border: 1px solid #27272a; border-radius: 7px;
-      padding: 5px 8px; margin-bottom: 4px; color: #c7d3e8; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
-    .file:hover { border-color: rgba(110,168,255,0.45); background: rgba(110,168,255,0.07); }
+      background: var(--wl-surface); border: 1px solid var(--wl-line); border-radius: 7px;
+      padding: 5px 8px; margin-bottom: 4px; color: #c7d3e8; font-family: var(--wl-mono); font-size: 10.5px; }
+    .file:hover { border-color: var(--wl-blue-line); background: var(--wl-blue-bg); }
     .file .st { flex: 0 0 14px; text-align: center; font-weight: 700; }
-    .st.M { color: #6ea8ff; } .st.A, .st.U, .st["?" ] { color: #5ce1c7; } .st.D { color: #ff9c9c; }
+    .st.M { color: var(--wl-blue); } .st.A, .st.U, .st["?" ] { color: var(--wl-mint); } .st.D { color: var(--wl-red-text); }
     .file .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
-    .file .num { color: #5a6580; font-size: 9.5px; white-space: nowrap; }
+    .file .num { color: var(--wl-text-faint); font-size: 9.5px; white-space: nowrap; }
     .pagerow { display: flex; align-items: center; gap: 2px; }
     .pagerow .chat { flex: 1; text-align: left; }
     /* Pages get their own bounded scroller so they never push Recent chats off-screen */
     .pages-box {
       max-height: 238px; overflow-y: auto; padding: 3px;
-      background: #0b0b0e; border: 1px solid #1f1f23; border-radius: 9px;
+      background: var(--wl-bg); border: 1px solid var(--wl-line-soft); border-radius: var(--wl-r-sm);
     }
-    .pages-box::-webkit-scrollbar { width: 7px; }
-    .pages-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.13); border-radius: 4px; }
-    .pages-box::-webkit-scrollbar-track { background: transparent; }
     .pages-box .empty { padding: 8px; }
-    .pgadd { background: none; border: 0; color: #4d566b; font-size: 15px; cursor: pointer;
+    .pgadd { background: none; border: 0; color: var(--wl-text-ghost); font-size: 15px; cursor: pointer;
       padding: 0 7px; line-height: 1; font-family: inherit; }
-    .pgadd:hover { color: #5ce1c7; }
-    .num .a { color: #5ce1c7; } .num .d { color: #ff9c9c; }
+    .pgadd:hover { color: var(--wl-mint); }
+    .num .a { color: var(--wl-mint); } .num .d { color: var(--wl-red-text); }
     .chat { display: block; width: 100%; text-align: left; cursor: pointer; background: none; border: 0;
-      color: #9aa7bd; font-size: 11.5px; padding: 5px 8px; border-radius: 7px; font-family: inherit; }
-    .chat:hover { background: #18181b; color: #f4f4f5; }
-    .chat.on { background: #27272a; color: #f4f4f5; }
-    .empty { color: #4d566b; font-size: 11px; padding: 4px 8px; }
-    .foot { border-top: 1px solid #27272a; padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
-    .srv { flex: 1; color: #5a6580; font-size: 10.5px; }
-    .srv b { color: #9db4d8; font-weight: 600; }
-    .stop { background: rgba(255,90,90,0.1); color: #ff9c9c; border: 1px solid rgba(255,90,90,0.3);
-      border-radius: 7px; font-size: 10.5px; padding: 4px 10px; cursor: pointer; }
-    .stop:hover { background: rgba(255,90,90,0.18); }
+      color: var(--wl-text-dim); font-size: 11.5px; padding: 5px 8px; border-radius: 7px; font-family: inherit; }
+    .chat:hover { background: var(--wl-surface-3); color: var(--wl-text); }
+    .chat.on { background: var(--wl-line); color: var(--wl-text); }
+    .empty { color: var(--wl-text-ghost); font-size: var(--wl-fs-sm); padding: 4px 8px; text-align: left; line-height: 1.6; }
+    .foot { border-top: 1px solid var(--wl-line); padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
+    .attach-row { display: flex; gap: 6px; padding: 0 14px 10px; }
+    .attach-row input { flex: 1; min-width: 0; font-size: 10.5px; padding: 4px 7px; }
+    .srv { flex: 1; color: var(--wl-text-faint); font-size: 10.5px; }
+    .srv b { color: var(--wl-blue-dim); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -75,8 +70,13 @@
   </div>
   <div class="foot">
     <div class="srv" id="srv">server <b>idle</b></div>
-    <button class="stop" id="restart" title="Restart the dev server">⟳</button>
-    <button class="stop" id="stop">stop</button>
+    <button class="wl-btn icon sm" id="attach" title="Attach to a running dev server">⇢</button>
+    <button class="wl-btn icon sm danger" id="restart" title="Restart the dev server">⟳</button>
+    <button class="wl-btn danger sm" id="stop">stop</button>
+  </div>
+  <div class="attach-row" id="attach-row" hidden>
+    <input class="wl-input" id="attach-url" placeholder="localhost:8000" />
+    <button class="wl-btn sm" id="attach-go">attach</button>
   </div>
   <script>
     if (navigator.userAgent.includes('Mac')) document.body.classList.add('mac');
@@ -144,6 +144,22 @@
       $('pages-refresh').onclick = refreshPages;
       $('stop').onclick = () => WL().stopDev && WL().stopDev();
       $('restart').onclick = () => WL().restartDev && WL().restartDev();
+      $('attach').onclick = () => {
+        const row = $('attach-row');
+        row.hidden = !row.hidden;
+        if (!row.hidden) $('attach-url').focus();
+      };
+      const doAttach = async () => {
+        const url = $('attach-url').value.trim();
+        if (!url) return;
+        $('attach-go').disabled = true;
+        const r = await (WL().devAttach ? WL().devAttach(url) : Promise.resolve(null)).catch(() => null);
+        $('attach-go').disabled = false;
+        if (r && r.ok) { $('attach-row').hidden = true; $('attach-url').value = ''; }
+        else { $('srv').textContent = (r && r.error) || 'attach failed'; }
+      };
+      $('attach-go').onclick = doAttach;
+      $('attach-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAttach(); });
       if (wl.onGitRefresh) wl.onGitRefresh(() => { refreshPages(); refreshGit(); });
       if (wl.onSessionsChanged) wl.onSessionsChanged(() => refreshChats());
       if (wl.onPageNav) wl.onPageNav((info) => {

@@ -1,11 +1,21 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, Menu, ipcMain, dialog, shell, screen } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, ipcMain, dialog, shell, screen, clipboard } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
 const readline = require('node:readline');
 const sandbox = require('./sandbox');
+const frameworks = require('./frameworks');
+const { listModels } = require('./local-models');
+const scaffold = require('./scaffold');
+const staticServer = require('./static-server');
+const { References, MAX_REFS } = require('./references');
+const { McpClient } = require('./mcp');
+const { importFigma } = require('./figma');
+const { cleanServers, normalizeMcp } = require('./mcp-servers');
+const { exposeTools } = require('./agent-tools');
+const mcpOauth = require('./mcp-oauth');
 
 // a closed stdout pipe (e.g. launched through `| head`) must never crash the app
 process.stdout.on('error', () => {});
@@ -20,8 +30,9 @@ const SMOKE = process.argv.includes('--smoke');
 const TEST_PROJ = (() => { const i = process.argv.indexOf('--test-project'); return i >= 0 ? process.argv[i + 1] : null; })();
 const TEST_OPENCODE = (() => { const i = process.argv.indexOf('--test-opencode'); return i >= 0 ? process.argv[i + 1] : null; })();
 const TEST_LOAD = (() => { const i = process.argv.indexOf('--test-load'); return i >= 0 ? process.argv[i + 1] : null; })();
+const TEST_STATIC = process.argv.includes('--test-static');
 // test runs must never touch the user's real memory.json / settings.json
-if (SMOKE || TEST_PROJ || TEST_OPENCODE || TEST_LOAD) {
+if (SMOKE || TEST_PROJ || TEST_OPENCODE || TEST_LOAD || TEST_STATIC) {
   try { app.setPath('userData', path.join(os.tmpdir(), 'withlook-test')); } catch {}
 }
 
@@ -39,10 +50,17 @@ let panelOpen = false;  // overlay expanded (floating pill → panel)
 let dockMode = false;   // Onlook-style: chat docked right, preview beside it
 let pickerActive = false;
 let devProc = null;
+let staticSrv = null; // in-process server for plain-HTML projects
+let refsStore = null; // canvas reference images
+let refsOpen = false;
+const refCards = new Map(); // id → WebContentsView (draggable canvas cards)
+const cardSig = new Map(); // id → last rendered signature
+let refsSaveTimer = null;
+const mcpClients = new Map(); // id → { client, status, tools, serverInfo, error }
 let devWait = null; // port-poll timeout guard
 let createProc = null; // active create-next-app scaffold
 let createCancelled = false;
-let devState = { state: 'idle', folder: null, projectFolder: null, sandbox: null, pm: null, port: null, url: null, error: null, external: false };
+let devState = { state: 'idle', folder: null, projectFolder: null, sandbox: null, pm: null, framework: null, scaffold: false, port: null, url: null, error: null, external: false };
 let devLogs = [];
 const chatAborts = new Map();
 let quitting = false; // true once the app is really quitting (not just closing the window)
@@ -53,6 +71,7 @@ const DEFAULT_SETTINGS = {
   provider: 'cloudflare',
   cloudflare: { accountId: '', token: '', model: '@cf/meta/llama-3.3-70b-instruct' },
   openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  local: { baseUrl: 'http://localhost:11434/v1', apiKey: '', model: '' },
   systemPrompt: '',
   editor: 'code',
   sandbox: true, // agent edits + dev server run in an isolated worktree; your folder is untouched
@@ -61,6 +80,7 @@ const DEFAULT_SETTINGS = {
   // the app always opens on the dashboard; projects start only when the user clicks one
   window: null,
   memory: { url: 'postgres://postgres@localhost:5432/postgres' },
+  mcp: normalizeMcp(null),
 };
 function loadSettings() {
   try {
@@ -69,8 +89,10 @@ function loadSettings() {
       ...DEFAULT_SETTINGS, ...s,
       cloudflare: { ...DEFAULT_SETTINGS.cloudflare, ...(s.cloudflare || {}) },
       openai: { ...DEFAULT_SETTINGS.openai, ...(s.openai || {}) },
+      local: { ...DEFAULT_SETTINGS.local, ...(s.local || {}) },
       opencode: { ...DEFAULT_SETTINGS.opencode, ...(s.opencode || {}) },
       memory: { ...DEFAULT_SETTINGS.memory, ...(s.memory || {}) },
+      mcp: normalizeMcp(s.mcp),
     };
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
@@ -105,6 +127,364 @@ let loaderVisible = false; // mirrors loaderView visibility for tests/telemetry
 let overlayVisible = false; // mirrors overlayView visibility for tests/telemetry
 const SIDEBAR_W = 232;
 const CANVAS_FIT_MARGIN = 48; // Onlook's FIT_MARGIN
+function refsVisible() {
+  return !!(refsOpen && refsStore && refsStore.items.length && devState.state === 'running' && !homeMode && pageInMain);
+}
+function refsState() {
+  return {
+    items: refsStore ? refsStore.list() : [],
+    open: refsVisible(),
+    full: !!(refsStore && refsStore.items.length >= MAX_REFS),
+    project: devState.projectFolder || null,
+  };
+}
+function scheduleRefsSave() {
+  if (refsSaveTimer) clearTimeout(refsSaveTimer);
+  refsSaveTimer = setTimeout(() => {
+    refsSaveTimer = null;
+    if (refsStore) refsStore.save();
+  }, 350);
+}
+async function pickReferences() {
+  if (!refsStore) return refsState();
+  const r = await dialog.showOpenDialog(win, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
+  });
+  if (!r.canceled) {
+    let added = 0;
+    for (const f of r.filePaths) { const a = refsStore.addPath(f); if (a.ok) added++; }
+    if (added) {
+      refsOpen = true;
+      pushDevLog(`withlook: added ${added} reference image${added === 1 ? '' : 's'}`);
+      refsSend();
+    }
+  }
+  return refsState();
+}
+function refsSend() {
+  const s = refsState();
+  try { if (overlayView && !overlayView.webContents.isDestroyed()) overlayView.webContents.send('refs:state', s); } catch {}
+  syncRefCards();
+  layout();
+}
+function sendCard(id) {
+  const view = refCards.get(id);
+  const item = refsStore && refsStore.items.find((i) => i.id === id);
+  if (!view || !item) return;
+  const sig = `${item.name}|${item.include}|${item.thumb.length}|${item.w}x${item.h}`;
+  if (cardSig.get(id) === sig) return;
+  cardSig.set(id, sig);
+  try {
+    view.webContents.send('ref:item', {
+      id: item.id, name: item.name, thumb: item.thumb, include: item.include,
+      width: item.width, height: item.height, w: item.w, h: item.h, zoom: canvas.zoom,
+    });
+  } catch {}
+}
+function syncRefCards() {
+  if (!win) return;
+  const visible = refsVisible();
+  const items = (visible && refsStore) ? refsStore.items : [];
+  const keep = new Set(items.map((i) => i.id));
+  let changed = false;
+  for (const [id, view] of [...refCards]) {
+    if (!keep.has(id)) {
+      try { win.contentView.removeChildView(view); } catch {}
+      try { view.webContents.destroy(); } catch {}
+      refCards.delete(id);
+      cardSig.delete(id);
+      changed = true;
+    }
+  }
+  if (!visible) {
+    for (const view of refCards.values()) { try { view.setVisible(false); } catch {} }
+    return;
+  }
+  for (const item of items) {
+    let view = refCards.get(item.id);
+    if (!view) {
+      view = new WebContentsView({
+        webPreferences: { preload: path.join(__dirname, 'preload-overlay.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+      });
+      try { view.setBackgroundColor('#00000000'); } catch {}
+      view.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'ref-card.html')).catch(() => {});
+      view.webContents.on('did-finish-load', () => { cardSig.delete(item.id); sendCard(item.id); });
+      refCards.set(item.id, view);
+      win.contentView.addChildView(view);
+      changed = true;
+    }
+    try { view.setVisible(true); } catch {}
+    sendCard(item.id);
+  }
+  if (changed) restackViews();
+  layoutRefCards();
+}
+function layoutRefCards() {
+  if (!win) return;
+  const a = previewArea();
+  const zoom = canvas.zoom || 1;
+  const pageW = Math.round(a.w * zoom);
+  const pageH = Math.round(a.h * zoom);
+  const originX = a.x + Math.round((a.w - pageW) / 2) + canvas.x;
+  const originY = a.y + Math.round((a.h - pageH) / 2) + canvas.y;
+  for (const [id, view] of refCards) {
+    const item = refsStore && refsStore.items.find((i) => i.id === id);
+    if (!item) continue;
+    const w = Math.max(80, Math.round(item.w * zoom));
+    const h = Math.max(60, Math.round(item.h * zoom));
+    let x = originX + Math.round(item.x * zoom);
+    let y = originY + Math.round(item.y * zoom);
+    // keep a corner reachable when the window or zoom changes
+    x = Math.max(a.x - w + 48, Math.min(x, a.x + a.w - 48));
+    y = Math.max(a.y - h + 48, Math.min(y, a.y + a.h - 48));
+    try { view.setBounds({ x, y, width: w, height: h }); } catch {}
+  }
+}
+function mcpConfigs() {
+  const m = loadSettings().mcp;
+  return (m && Array.isArray(m.servers)) ? m.servers : [];
+}
+function mcpConfig(id) {
+  return mcpConfigs().find((s) => s.id === id) || null;
+}
+function mcpTokens() {
+  const m = loadSettings().mcp;
+  return (m && m.oauthTokens && typeof m.oauthTokens === 'object') ? m.oauthTokens : {};
+}
+function saveMcpToken(id, tok) {
+  const s = loadSettings();
+  s.mcp = { ...(s.mcp || {}), oauthTokens: { ...((s.mcp && s.mcp.oauthTokens) || {}), [id]: tok } };
+  saveSettings(s);
+}
+function clearMcpToken(id) {
+  const s = loadSettings();
+  const t = { ...((s.mcp && s.mcp.oauthTokens) || {}) };
+  delete t[id];
+  s.mcp = { ...(s.mcp || {}), oauthTokens: t };
+  saveSettings(s);
+}
+function mcpState(id) {
+  const cfg = mcpConfig(id) || { id, name: id, transport: 'http', url: '', command: '', args: [], enabled: false };
+  const st = mcpClients.get(id);
+  return {
+    id,
+    name: cfg.name,
+    transport: cfg.transport,
+    url: cfg.url,
+    command: cfg.command,
+    args: cfg.args,
+    enabled: cfg.enabled,
+    status: st ? st.status : 'disconnected',
+    tools: st ? st.tools : [],
+    server: (st && st.serverInfo) ? st.serverInfo.name : null,
+    error: st ? st.error : null,
+    signedIn: !!(cfg.token || mcpTokens()[id]),
+    hasClient: !!cfg.clientId,
+    clientId: cfg.clientId || '',
+    redirectUri: cfg.redirectUri || '',
+  };
+}
+function mcpStatus() {
+  return {
+    useTools: loadSettings().mcp.useTools !== false,
+    servers: mcpConfigs().map((s) => mcpState(s.id)),
+  };
+}
+async function mcpConnect(id, opts = {}) {
+  const cfg = mcpConfig(id);
+  if (!cfg) return { ok: false, error: 'Unknown connector.' };
+  if (cfg.transport === 'http' && !/^https?:\/\//i.test(cfg.url || '')) {
+    return { ok: false, error: 'Enter the connector URL.' };
+  }
+  if (cfg.transport === 'stdio' && !cfg.command) {
+    return { ok: false, error: 'Enter the command to run.' };
+  }
+  let tok = cfg.token ? { accessToken: cfg.token } : (cfg.oauth ? (mcpTokens()[id] || null) : null);
+  if (tok && tok.expiresAt && tok.expiresAt - 60000 <= Date.now() && tok.refreshToken) {
+    try {
+      const fresh = await mcpOauth.refresh({ token: tok });
+      if (fresh) { tok = fresh; saveMcpToken(id, fresh); } else tok = null;
+    } catch { tok = null; }
+  }
+  const prev = mcpClients.get(id);
+  if (prev && prev.client) { try { prev.client.close(); } catch {} }
+  mcpClients.set(id, { client: null, status: 'connecting', tools: [], toolsFull: null, serverInfo: null, error: null });
+  const client = new McpClient({
+    transport: cfg.transport,
+    url: cfg.url,
+    command: cfg.command,
+    args: cfg.args,
+    name: 'withlook',
+    token: tok ? tok.accessToken : null,
+  });
+  try {
+    await client.connect();
+    return mcpConnected(id, cfg, client);
+  } catch (e) {
+    if (cfg.oauth && e.code === 401) return mcpOAuthRetry(id, cfg, client, e, opts);
+    return mcpFailed(id, client, e);
+  }
+}
+async function mcpConnected(id, cfg, client) {
+  const tools = await client.listTools();
+  mcpClients.set(id, { client, status: 'connected', tools: tools.map((t) => t.name), toolsFull: tools, serverInfo: client.serverInfo, error: null });
+  pushDevLog(`withlook: connected ${cfg.name} (${tools.length} tool${tools.length === 1 ? '' : 's'})`);
+  return { ok: true, server: mcpState(id) };
+}
+function mcpFailed(id, client, e) {
+  try { client.close(); } catch {}
+  mcpClients.set(id, { client: null, status: 'error', tools: [], toolsFull: null, serverInfo: null, error: e.message });
+  return { ok: false, error: e.message, server: mcpState(id) };
+}
+function mcpDisconnect(id) {
+  const st = mcpClients.get(id);
+  if (st && st.client) { try { st.client.close(); } catch {} }
+  mcpClients.delete(id);
+  return mcpStatus();
+}
+async function mcpOAuthRetry(id, cfg, client, e, opts) {
+  if (!opts.interactive) {
+    try { client.close(); } catch {}
+    const msg = 'Sign-in required — open Connectors and click connect.';
+    mcpClients.set(id, { client: null, status: 'auth', tools: [], toolsFull: null, serverInfo: null, error: msg });
+    return { ok: false, authRequired: true, error: msg, server: mcpState(id) };
+  }
+  if (!cfg.clientId && !cfg.pat) {
+    try { client.close(); } catch {}
+    const msg = 'Add an OAuth client ID and secret (or a Figma PAT) in this connector to sign in.';
+    mcpClients.set(id, { client: null, status: 'auth', tools: [], toolsFull: null, serverInfo: null, error: msg });
+    return { ok: false, needPat: true, needClient: true, error: msg, server: mcpState(id) };
+  }
+  try {
+    pushDevLog(`withlook: opening the browser to sign in to ${cfg.name}`);
+    const fresh = await mcpOauth.authorize({
+      serverUrl: cfg.url,
+      challenge: client.authChallenge || '',
+      pat: cfg.pat,
+      clientId: cfg.clientId,
+      clientSecret: cfg.clientSecret,
+      redirectUri: cfg.redirectUri,
+      clientName: 'withlook',
+      openUrl: (u) => {
+        overlaySend('mcp:authUrl', { id, url: u });
+        return shell.openExternal(u);
+      },
+    });
+    saveMcpToken(id, fresh);
+    client.token = fresh.accessToken;
+    await client.connect();
+    return mcpConnected(id, cfg, client);
+  } catch (e2) {
+    return mcpFailed(id, client, e2);
+  }
+}
+function mcpSignOut(id) {
+  const s = loadSettings();
+  const servers = (s.mcp && Array.isArray(s.mcp.servers) ? s.mcp.servers : []).map((c) => (
+    c.id === id ? { ...c, token: '' } : c
+  ));
+  s.mcp = { ...(s.mcp || {}), servers };
+  saveSettings(s);
+  clearMcpToken(id);
+  return mcpDisconnect(id);
+}
+async function mcpSave(input) {
+  const list = Array.isArray(input) ? input : (input && input.servers);
+  const useTools = (!Array.isArray(input) && input && input.useTools !== undefined) ? !!input.useTools : undefined;
+  const before = new Map(mcpConfigs().map((s) => [s.id, s]));
+  const next = cleanServers(list).map((c) => {
+    const prev = before.get(c.id);
+    const keep = (k) => c[k] || (prev && prev[k]) || '';
+    return { ...c, pat: keep('pat'), clientSecret: keep('clientSecret'), token: keep('token') };
+  });
+  const s = loadSettings();
+  const keep = new Set(next.map((x) => x.id));
+  const oauthTokens = { ...((s.mcp && s.mcp.oauthTokens) || {}) };
+  for (const k of Object.keys(oauthTokens)) if (!keep.has(k)) delete oauthTokens[k];
+  s.mcp = { ...(s.mcp || {}), servers: next, oauthTokens, ...(useTools === undefined ? {} : { useTools }) };
+  saveSettings(s);
+  for (const [id, st] of [...mcpClients]) {
+    const cfg = next.find((x) => x.id === id);
+    const prev = before.get(id);
+    const changed = !cfg || !prev ||
+      cfg.transport !== prev.transport || cfg.url !== prev.url ||
+      cfg.command !== prev.command || JSON.stringify(cfg.args) !== JSON.stringify(prev.args) ||
+      cfg.oauth !== prev.oauth;
+    if (!cfg || !cfg.enabled || changed) {
+      if (st.client) { try { st.client.close(); } catch {} }
+      mcpClients.delete(id);
+    }
+  }
+  const connects = next.filter((c) => c.enabled && !mcpClients.has(c.id)).map((c) => mcpConnect(c.id));
+  if (connects.length) await Promise.allSettled(connects);
+  return mcpStatus();
+}
+async function mcpAddFigmaRemote() {
+  const id = 'figma-remote';
+  const list = mcpConfigs().map((s) => ({ ...s }));
+  const preset = {
+    id,
+    name: 'Figma (remote)',
+    transport: 'http',
+    url: 'https://mcp.figma.com/mcp',
+    command: '',
+    args: [],
+    enabled: false,
+    oauth: true,
+  };
+  const i = list.findIndex((s) => s.id === id);
+  if (i >= 0) list[i] = { ...list[i], ...preset };
+  else list.push(preset);
+  await mcpSave(list);
+  return { ok: true, id, server: mcpState(id) };
+}
+async function mcpAddFigmaLocal() {
+  const id = 'figma';
+  const list = mcpConfigs().map((s) => ({ ...s }));
+  const preset = {
+    id,
+    name: 'Figma (local)',
+    transport: 'http',
+    url: 'http://127.0.0.1:3845/mcp',
+    command: '',
+    args: [],
+    enabled: false,
+    oauth: false,
+  };
+  const i = list.findIndex((s) => s.id === id);
+  if (i >= 0) list[i] = { ...list[i], ...preset };
+  else list.push(preset);
+  await mcpSave(list);
+  return { ok: true, id, server: mcpState(id) };
+}
+function figmaServerId() {
+  const list = mcpConfigs();
+  const fig = list.find((s) => s.id === 'figma') || list.find((s) => /figma/i.test(s.name));
+  return fig ? fig.id : null;
+}
+async function ensureFigmaClient() {
+  const id = figmaServerId();
+  if (!id) return { ok: false, error: 'Add a Figma connector in Connectors first.' };
+  const st = mcpClients.get(id);
+  if (st && st.status === 'connected' && st.client) return { ok: true, id };
+  const r = await mcpConnect(id);
+  return r.ok ? { ok: true, id } : { ok: false, error: r.error };
+}
+// WIP: used by the tool-calling loop (not wired into handleChatSend yet)
+async function mcpToolsForModel() {
+  const servers = [];
+  for (const cfg of mcpConfigs()) {
+    const st = mcpClients.get(cfg.id);
+    if (!st || st.status !== 'connected' || !st.client) continue;
+    let full = st.toolsFull;
+    if (!Array.isArray(full) || !full.length) {
+      try { full = await st.client.listTools(); st.toolsFull = full; } catch { full = []; }
+    }
+    if (full.length) servers.push({ id: cfg.id, name: cfg.name, tools: full });
+  }
+  return exposeTools(servers);
+}
 function previewArea() {
   const [W, H] = win.getContentSize();
   if (dockMode) {
@@ -112,10 +492,10 @@ function previewArea() {
     const showSidebar = !sidebarHidden && W >= 1000;
     try { if (sidebarView) sidebarView.setVisible(showSidebar); } catch {}
     const left = showSidebar ? SIDEBAR_W : 0;
-    return { x: left, y: TAB_BAR_H, w: Math.max(200, W - left - dockW), h: H - TAB_BAR_H };
+    return { x: left, y: TAB_BAR_H, w: Math.max(200, W - left - dockW), h: Math.max(120, H - TAB_BAR_H) };
   }
   try { if (sidebarView) sidebarView.setVisible(false); } catch {}
-  return { x: 0, y: TAB_BAR_H, w: W, h: H - TAB_BAR_H };
+  return { x: 0, y: TAB_BAR_H, w: W, h: Math.max(120, H - TAB_BAR_H) };
 }
 // ---------- route tabs (Onlook-style tab strip) ----------
 let tabs = [];        // {view, route} — tab 0 is always pageView
@@ -194,10 +574,11 @@ function closeExtraTabs() {
 }
 function restackViews() {
   try {
-    const chrome = [overlayView, canvasBarView, panGlassView, tabbarView, sidebarView, loaderView];
+    const chrome = [overlayView, canvasBarView, panGlassView, tabbarView, sidebarView, loaderView, ...refCards.values()];
     for (const v of [...chrome, ...tabs.map((t) => t.view)]) win.contentView.removeChildView(v);
     win.contentView.addChildView(pageView);
     for (const t of tabs) if (t.view !== pageView) win.contentView.addChildView(t.view);
+    for (const v of refCards.values()) win.contentView.addChildView(v);
     win.contentView.addChildView(loaderView);
     win.contentView.addChildView(panGlassView);
     win.contentView.addChildView(canvasBarView);
@@ -225,7 +606,7 @@ function applyLoader() {
   try {
     loaderView.setBounds({ x: a.x, y: a.y, width: a.w, height: a.h });
     // show during startup and any in-flight page load — but not over the scaffold form
-    const scaffolding = devState.state === 'starting' && devState.pm === 'create-next-app';
+    const scaffolding = devState.state === 'starting' && devState.scaffold;
     loaderVisible = pageInMain && !homeMode && ((devState.state === 'starting' && !scaffolding) || (devState.state === 'running' && activeLoading));
     loaderView.setVisible(loaderVisible);
   } catch {}
@@ -257,7 +638,9 @@ function applyCanvas() {
     }
   }
   if (pageInMain) {
-    try { pageView.setBorderRadius(canvas.zoom !== 1 ? 10 : 0); } catch {}
+    // frames read as cards on the stage whenever they don't fill it
+    const radius = (multiCanvas || canvas.zoom !== 1) ? 10 : 0;
+    for (const t of tabs) { try { t.view.setBorderRadius(radius); } catch {} }
   }
   try {
     if (tabbarView) {
@@ -266,7 +649,7 @@ function applyCanvas() {
       tabbarView.setVisible(showTopBar);
     }
     applyLoader();
-    const bw = 344; // wide enough for every dock control
+    const bw = 420; // wide enough for every dock control
     canvasBarView.setBounds({ x: a.x + Math.round((a.w - bw) / 2), y: a.y + a.h - 42 - 14, width: bw, height: 42 });
     canvasBarView.setVisible(showCanvasBar);
     panGlassView.setBounds({ x: fa.x, y: fa.y, width: fa.w, height: fa.h });
@@ -276,6 +659,7 @@ function applyCanvas() {
       canvasBarView.webContents.send('canvas:state', { ...canvas, frames: tabs.length, dev: devState.state, dock: dockMode, multi: multiCanvas });
     }
   } catch {}
+  layoutRefCards();
 }
 function toggleFloat() {
   setPanelOpen(!(panelOpen && dockMode)); // docked → float · otherwise dock/open
@@ -292,12 +676,16 @@ function toggleChat() {
   return { hidden: chatHidden };
 }
 function doCanvasAction(action, data) {
+  const camera = action === 'in' || action === 'out' || action === 'fit' || action === 'panMode' || action === 'pan' || action === 'center';
+  if (camera && (homeMode || devState.state !== 'running')) return;
   switch (action) {
     case 'in': canvas.zoom = Math.min(3, Math.round(canvas.zoom * 1.25 * 1000) / 1000); break;
     case 'out': canvas.zoom = Math.max(0.25, Math.round(canvas.zoom / 1.25 * 1000) / 1000); break;
     case 'fit': canvas.zoom = 1; canvas.x = 0; canvas.y = 0; break;
     case 'panMode': canvas.panMode = !!data; break;
     case 'pan': canvas.x += (data && data.dx) || 0; canvas.y += (data && data.dy) || 0; break;
+    case 'center': canvas.x = 0; canvas.y = 0; break;
+    case 'addRef': pickReferences(); break;
     case 'clearFrames': closeExtraTabs(); break;
     case 'openTab': if (data) openTab(String(data)); break;
     case 'openTabForce': if (data) openTab(String(data), true); break;
@@ -324,6 +712,7 @@ function doCanvasAction(action, data) {
     case 'newChat': overlaySend('ui:newChat', {}); break;
     case 'history': overlaySend('ui:openHistory', {}); break;
     case 'settings': overlaySend('ui:openSettings', {}); break;
+    case 'connectors': overlaySend('ui:openConnectors', {}); break;
   }
   applyCanvas();
 }
@@ -331,6 +720,7 @@ function doCanvasAction(action, data) {
 function layout() {
   if (!win || !pageView || !overlayView) return;
   const [W, H] = win.getContentSize();
+  syncRefCards();
   applyCanvas();
   if (settingsModal) {
     // settings is a global modal: the overlay covers the window and dims the page/dashboard
@@ -373,7 +763,7 @@ function setPanelOpen(open) {
   // full-screen (float) mode frames the page at 80% by default; docked is 100%
   if (devState.state === 'running' && pageInMain) canvas.zoom = dockMode ? 1 : 0.8;
   layout();
-  overlaySend('ui:mode', { open: panelOpen, dock: dockMode, preview: !!(previewWin && !previewWin.isDestroyed()) });
+  overlaySend('ui:mode', { open: panelOpen, dock: dockMode, home: homeMode, preview: !!(previewWin && !previewWin.isDestroyed()) });
   return { open: panelOpen, dock: dockMode };
 }
 
@@ -398,7 +788,7 @@ function showPreviewWindow() {
     pageInMain = false;
     layout(); // hides the canvas chrome while the preview is popped out
     layout();
-    overlaySend('ui:mode', { open: panelOpen, dock: dockMode, preview: true });
+    overlaySend('ui:mode', { open: panelOpen, dock: dockMode, home: homeMode, preview: true });
     const fit = () => {
       if (!previewWin || previewWin.isDestroyed()) return;
       const [w, h] = previewWin.getContentSize();
@@ -415,7 +805,7 @@ function showPreviewWindow() {
     previewWin.on('closed', () => {
       previewWin = null;
       layout();
-      overlaySend('ui:mode', { open: panelOpen, dock: dockMode, preview: false });
+      overlaySend('ui:mode', { open: panelOpen, dock: dockMode, home: homeMode, preview: false });
       if (win && !win.isDestroyed() && devState.state !== 'running') {
         pageView.webContents.loadFile(PLACEHOLDER_FILE).catch(() => {});
       } // while running, the page simply returns to the docked editor layout
@@ -434,7 +824,7 @@ function resetToWelcome() {
     pageInMain = true;
     canvas.zoom = 1; canvas.x = 0; canvas.y = 0; canvas.panMode = false; // camera home
     layout();
-    pageView.webContents.loadFile(PLACEHOLDER_FILE).catch(() => {});
+    swapPageFile(PLACEHOLDER_FILE);
   } catch {}
 }
 function openHome() {
@@ -448,9 +838,9 @@ function openHome() {
     if (win && !win.isDestroyed() && !win.contentView.children.includes(pageView)) restackViews();
     pageInMain = true;
     canvas.zoom = 1; canvas.x = 0; canvas.y = 0; canvas.panMode = false;
-    pageView.webContents.loadFile(PLACEHOLDER_FILE).catch(() => {});
     layout();
-    overlaySend('ui:mode', { open: panelOpen, dock: dockMode, preview: false });
+    swapPageFile(PLACEHOLDER_FILE);
+    overlaySend('ui:mode', { open: panelOpen, dock: dockMode, home: homeMode, preview: false });
   } catch {}
 }
 
@@ -458,6 +848,7 @@ function openHome() {
 const pickerSource = fs.readFileSync(path.join(__dirname, 'picker-inject.js'), 'utf8');
 function startPicker() {
   if (!pageView) return;
+  if (homeMode || devState.state !== 'running') return; // no page to pick on the dashboard
   if (pickerActive) { cancelPicker(); return; } // toggle off
   pickerActive = true;
   overlaySend('picker:state', { active: true });
@@ -513,8 +904,13 @@ function openInEditor(_e, { file, line }) {
 const sh = (cmd, args) => new Promise((res) => {
   execFile(cmd, args, { maxBuffer: 1024 * 1024, timeout: 5000 }, (e, o) => res(e ? null : o));
 });
-async function findExistingDevServer(folder) {
-  for (let port = 3000; port <= 3012; port++) {
+async function findExistingDevServer(folder, ports) {
+  const scanPorts = Array.isArray(ports) && ports.length ? ports : (() => {
+    const a = [];
+    for (let p = 3000; p <= 3012; p++) a.push(p);
+    return a;
+  })();
+  for (const port of scanPorts) {
     const pids = await sh('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
     if (!pids) continue;
     for (const pid of pids.split('\n').filter(Boolean)) {
@@ -536,18 +932,74 @@ async function findExistingDevServer(folder) {
 }
 function attachDevServer(port, folder) {
   projectLoaded = false;
-  const localUrl = `http://localhost:${port}`;
   if (tabs[0]) tabs[0].route = '/';
   pushDevLog(`withlook: found a dev server already running for this project on :${port} — attaching`);
+  markServerReady(port, { external: true });
+}
+async function attachDevServerUrl(input, folder) {
+  const raw = String(input || '').trim();
+  if (!raw) return { ok: false, error: 'Enter a port or URL.' };
+  const url = (/^https?:\/\//i.test(raw) ? raw : 'http://localhost:' + raw.replace(/^:/, '')).replace(/\/+$/, '');
+  let port;
+  try {
+    const u = new URL(url);
+    port = Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
+  } catch { return { ok: false, error: 'That is not a valid URL.' }; }
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (r.status >= 500) return { ok: false, error: `The server on ${url} responded with ${r.status}.` };
+  } catch {
+    return { ok: false, error: `Could not reach ${url}. Is the server running?` };
+  }
+  let project = folder || devState.projectFolder || devState.folder;
+  try {
+    const pids = await sh('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
+    const pid = pids && pids.split('\n').filter(Boolean)[0];
+    if (pid) {
+      const cwdOut = await sh('lsof', ['-p', pid, '-a', '-d', 'cwd', '-Fn']);
+      const m = cwdOut ? cwdOut.match(/\nn(.+)/) : null;
+      const cwd = m ? m[1].trim() : '';
+      if (cwd) {
+        const resolved = resolveProjectFolder(cwd) || cwd;
+        const same = project && (cwd === project || cwd.startsWith(project + path.sep) || project.startsWith(cwd + path.sep));
+        if (!same) {
+          if (project) pushDevLog(`withlook: :${port} is running from ${resolved} — switching the project to it`);
+          project = resolved;
+        }
+      }
+    }
+  } catch {}
+  homeMode = false;
+  stopDev(true);
+  if (devState.sandbox) {
+    const q = sandbox.cleanupOnQuit(devState.sandbox);
+    if (q.kept) pushDevLog(`withlook: kept the sandbox at ${q.path}`);
+    devState.sandbox = null;
+  }
+  devState.folder = project;
+  devState.projectFolder = project;
+  devState.external = true;
+  pushDevLog(`withlook: attaching to ${url} — edits apply to the project folder`);
+  markServerReady(port, { external: true, url });
+  return { ok: true, port, url };
+}
+// one place that flips a project to "running": status, store, preview, every tab
+function markServerReady(port, opts = {}) {
+  const localUrl = opts.url || `http://localhost:${port}`;
+  setDevStatus({ state: 'running', port, url: localUrl, external: !!opts.external });
   pushDevLog(`withlook: server is up → ${localUrl}`);
-  setDevStatus({ state: 'running', port, url: localUrl, external: true });
-  overlaySend('git:refresh', {});
+  refreshGitViews();
   if (store) {
-    store.upsertProject({ folder, name: path.basename(folder), pm: devState.pm, port })
+    const projectFolder = devState.projectFolder || devState.folder;
+    store.upsertProject({ folder: projectFolder, name: path.basename(projectFolder), pm: devState.pm, port })
       .catch((e) => console.error('store upsert failed', e.message));
   }
-  loadPageUrl(localUrl);
-  setPanelOpen(true);
+  try {
+    loadPageUrl(localUrl);
+    setPanelOpen(true); // dock the chat panel next to the preview, Onlook-style
+  } catch (e) {
+    pushDevLog(`withlook: failed to open the page: ${e.message}`);
+  }
   for (const t of tabs) {
     try { t.view.webContents.loadURL(localUrl.replace(/\/+$/, '') + t.route).catch(() => {}); } catch {}
   }
@@ -557,10 +1009,14 @@ function attachDevServer(port, folder) {
 function resolveProjectFolder(folder) {
   if (!folder) return null;
   if (fs.existsSync(path.join(folder, 'package.json'))) return folder;
+  if (fs.existsSync(path.join(folder, 'index.html'))) return folder; // plain HTML site
   // users often pick the parent of the app (e.g. ~/Developer/jyt-web/jyt-web)
   try {
     const children = fs.readdirSync(folder, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && !d.name.startsWith('.') && fs.existsSync(path.join(folder, d.name, 'package.json')));
+      .filter((d) => d.isDirectory() && !d.name.startsWith('.') && (
+        fs.existsSync(path.join(folder, d.name, 'package.json')) ||
+        fs.existsSync(path.join(folder, d.name, 'index.html'))
+      ));
     if (children.length === 1) return path.join(folder, children[0].name);
   } catch {}
   return null;
@@ -618,8 +1074,9 @@ function stopDev(keepView) {
   if (!keepView) closeExtraTabs(); // a restart (keepView) reloads its tabs when the server returns
   if (createProc) { createCancelled = true; killProc(createProc); createProc = null; }
   if (devProc) { killProc(devProc); devProc = null; }
+  if (staticSrv) { try { staticSrv.close(); } catch {} staticSrv = null; }
   if (devWait) { clearTimeout(devWait); devWait = null; }
-  if (devState.state !== 'idle') setDevStatus({ state: 'idle', url: null, port: null, error: null, external: false });
+  if (devState.state !== 'idle') setDevStatus({ state: 'idle', url: null, port: null, framework: null, scaffold: false, error: null, external: false });
   if (!keepView) {
     setPanelOpen(false); // undock → back to the floating pill
     resetToWelcome();
@@ -644,6 +1101,20 @@ async function startDev(folder) {
   if (tabs[0]) tabs[0].route = '/'; // a new project always starts at its root, never the previous route
   const settings = loadSettings();
   devState.projectFolder = folder;
+  // reopening a project whose dev server is still running should attach, not start a second one
+  const early = await findExistingDevServer(folder, frameworks.portsFor(folder));
+  if (early) {
+    devState.pm = detectPM(folder);
+    const fw0 = frameworks.detectFramework(folder);
+    devState.framework = { id: fw0.id, name: fw0.name };
+    attachDevServer(early, folder);
+    return;
+  }
+  if (refsStore) {
+    refsStore.setProject(folder);
+    refsOpen = refsStore.items.length > 0;
+    refsSend();
+  }
   let runFolder = folder;
   const sandboxBase = () => path.join(app.getPath('userData'), 'worktrees');
 
@@ -658,7 +1129,7 @@ async function startDev(folder) {
         if (q.kept) pushDevLog(`withlook: kept the previous sandbox at ${q.path}`);
         devState.sandbox = null;
       }
-      setDevStatus({ state: 'starting', folder, projectFolder: folder, pm: null, port: null, url: null, error: null, external: false });
+      setDevStatus({ state: 'starting', folder, projectFolder: folder, pm: null, framework: null, port: null, url: null, error: null, external: false });
       pushDevLog('withlook: creating an isolated sandbox (your folder is not touched)…');
       const sb = await sandbox.createSandbox({ folder, baseDir: sandboxBase() });
       if (sb.ok) {
@@ -675,13 +1146,20 @@ async function startDev(folder) {
     devState.sandbox = null;
   }
 
-  const pm = detectPM(runFolder);
-  setDevStatus({ state: 'starting', folder: runFolder, projectFolder: folder, sandbox: devState.sandbox, pm, port: null, url: null, error: null, external: false });
+  const fw = frameworks.detectFramework(runFolder);
+  const framework = { id: fw.id, name: fw.name };
+  const pm = fw.id === 'static' ? null : detectPM(runFolder);
+  pushDevLog(`withlook: ${fw.name} project detected${pm ? ` (${pm})` : ''}${fw.routes ? '' : ' — routes are added as tabs'}`);
+  setDevStatus({ state: 'starting', folder: runFolder, projectFolder: folder, sandbox: devState.sandbox, pm, framework, scaffold: false, port: null, url: null, error: null, external: false });
   broadcastTabs();
-  // only attach to an already-running server when we're editing in place
-  if (!devState.sandbox) {
-    const existing = await findExistingDevServer(folder);
-    if (existing) { attachDevServer(existing, folder); return; }
+  // plain HTML has no dev command — withlook serves the folder itself
+  if (fw.id === 'static') {
+    pushDevLog('withlook: plain HTML — serving the folder locally');
+    const srv = await staticServer.start(runFolder);
+    if (!srv.ok) { setDevStatus({ state: 'error', error: `Could not start the static server: ${srv.error}` }); return; }
+    staticSrv = srv.server;
+    markServerReady(srv.port);
+    return;
   }
   let cmd = pm, cmdArgs = ['run', 'dev'];
   const plan = devState.sandbox ? nextDevPlan(runFolder) : null;
@@ -731,10 +1209,10 @@ async function startDev(folder) {
       }
       // next dev refuses to run twice for one project (lock held) — attach or clear a stale lock
       if (devLogs.some((l) => /Unable to acquire lock/i.test(l))) {
-        let live = await findExistingDevServer(folder);
+        let live = await findExistingDevServer(folder, frameworks.portsFor(folder));
         if (!live) {
           // a booting instance may not have opened its port yet — give it a few seconds
-          for (let i = 0; i < 6 && !live; i++) { await sleep(800); live = await findExistingDevServer(folder); }
+          for (let i = 0; i < 6 && !live; i++) { await sleep(800); live = await findExistingDevServer(folder, frameworks.portsFor(folder)); }
         }
         if (live) { attachDevServer(live, folder); return; }
         if (!lockRetryDone) {
@@ -751,12 +1229,18 @@ async function startDev(folder) {
         setDevStatus({ state: 'error', error: 'Another next dev instance is running for this project. Close it, then try again.' });
         return;
       }
+      const busy = devLogs.find((l) => /EADDRINUSE|address already in use/i.test(l));
+      if (busy) {
+        const m = busy.match(/:(\d{2,5})\b/);
+        setDevStatus({ state: 'error', error: `Port ${m ? m[1] : '?'} is already in use. Stop the other server, attach to it, or change the dev port.` });
+        return;
+      }
       setDevStatus({ state: 'error', error: `Dev server exited (code ${code}). See logs.` });
     }
   });
   devWait = setTimeout(() => {
     devWait = null;
-    if (devProc === proc && !portFound) { portFound = true; waitForPort(3000, proc); }
+    if (devProc === proc && !portFound) { portFound = true; waitForPort(fw.ports[0] || 3000, proc); }
   }, 25000);
 }
 async function waitForPort(port, proc) {
@@ -775,22 +1259,7 @@ async function waitForPort(port, proc) {
     try {
       if (res && res.status < 500) {
         if (devProc !== proc) return;
-        setDevStatus({ state: 'running', port, url: localUrl });
-        pushDevLog(`withlook: server is up → ${localUrl}`);
-        refreshGitViews();
-        if (store) {
-          store.upsertProject({ folder: devState.projectFolder || devState.folder, name: path.basename(devState.projectFolder || devState.folder), pm: devState.pm, port })
-            .catch((e) => console.error('store upsert failed', e.message));
-        }
-        try {
-          loadPageUrl(localUrl);
-          setPanelOpen(true); // dock the chat panel next to the preview, Onlook-style
-        } catch (e) {
-          pushDevLog(`withlook: failed to open the page: ${e.message}`);
-        }
-        for (const t of tabs) {
-          try { t.view.webContents.loadURL(localUrl.replace(/\/+$/, '') + t.route).catch(() => {}); } catch {}
-        }
+        markServerReady(port);
         return;
       }
     } catch (e) {
@@ -811,6 +1280,16 @@ async function waitForPort(port, proc) {
 function loadPageUrl(url) {
   if (!pageView) return;
   activeView().webContents.loadURL(url).catch((e) => overlaySend('page:error', { error: e.message }));
+}
+// swap the preview document without a white flash: hide → load → show
+async function swapPageFile(file) {
+  if (!pageView || pageView.webContents.isDestroyed()) return;
+  try { pageView.setVisible(false); } catch {}
+  try { await pageView.webContents.loadFile(file); } catch (e) {
+    // aborted loads are normal when navigating away or quitting
+    if (!quitting && !/ERR_ABORTED|ERR_FAILED/.test(e.message)) console.error('page load failed', e.message);
+  }
+  try { if (pageInMain) pageView.setVisible(activeTab === 0); } catch {}
 }
 function navInfo() {
   const wc = pageView ? activeView().webContents : null;
@@ -883,6 +1362,7 @@ function gitStatus(scope) {
         if (status[0] === 'R' || status[0] === 'C') i++; // skip the rename origin chunk
         if (!file) continue;
         if (status === '??' && /^\.env(\..+)?$/.test(path.basename(file))) continue; // keep secrets out of the change report
+        if (file.split('/').includes('withlook-references')) continue; // agent-only reference copies
         const st = stats[file] || {};
         files.push({ status, path: file, abs: path.join(folder, file), adds: st.adds, dels: st.dels });
       }
@@ -890,46 +1370,64 @@ function gitStatus(scope) {
     return { ok: true, branch: branch.trim(), repo, remote, files };
   })();
 }
+async function gitSharePatch(mode) {
+  const folder = gitFolder('sandbox');
+  if (!folder) return { ok: false, error: 'No project.' };
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', args, { cwd: folder, maxBuffer: 32 * 1024 * 1024 }, (err, stdout) => resolve(err ? null : stdout));
+  });
+  const [patch, statusOut, branchOut] = await Promise.all([
+    run(['diff', 'HEAD', '--binary']),
+    run(['status', '--porcelain=v1', '-z']),
+    run(['rev-parse', '--abbrev-ref', 'HEAD']),
+  ]);
+  if (patch === null) return { ok: false, error: 'git diff failed.' };
+  const files = [];
+  const untracked = [];
+  if (statusOut) {
+    const parts = statusOut.split('\0');
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (!p) continue;
+      const status = p.slice(0, 2);
+      const file = p.slice(3);
+      if (status[0] === 'R' || status[0] === 'C') i++; // skip rename origin
+      if (!file) continue;
+      if (/^\.env(\..+)?$/.test(path.basename(file))) continue;
+      if (file.split('/').includes('withlook-references')) continue;
+      files.push({ status: status.trim() || '?', path: file });
+      if (status === '??') untracked.push(file);
+    }
+  }
+  if (mode === 'copy') {
+    clipboard.writeText(patch);
+    return { ok: true, bytes: patch.length, files: files.length };
+  }
+  const dir = path.join(app.getPath('userData'), 'patches');
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const base = path.basename(folder) + '-' + stamp;
+  const patchPath = path.join(dir, base + '.patch');
+  const manifestPath = path.join(dir, base + '.json');
+  const manifest = {
+    project: folder,
+    branch: branchOut ? branchOut.trim() : '',
+    base: 'HEAD',
+    createdAt: new Date().toISOString(),
+    patch: patchPath,
+    files,
+    untracked,
+  };
+  fs.writeFileSync(patchPath, patch);
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  return { ok: true, patchPath, manifestPath, bytes: patch.length, files: files.length };
+}
 
-// ---------- pages (Onlook-style route list) ----------
-const PAGE_FILE = /^page\.(tsx|ts|jsx|js|mdx)$/;
+// ---------- pages (route list from the detected framework) ----------
 async function listPages() {
   const folder = devState.folder;
   if (!folder) return [];
-  const found = [];
-  const scan = async (root, isAppRouter) => {
-    const fullRoot = path.join(folder, root);
-    if (!fs.existsSync(fullRoot)) return;
-    const walk = async (dir, rel, depth) => {
-      if (depth > 7 || found.length > 200) return;
-      let entries;
-      try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
-      for (const ent of entries) {
-        if (ent.name.startsWith('_') || ent.name.startsWith('.') || ent.name === 'node_modules') continue;
-        const relPath = rel ? `${rel}/${ent.name}` : ent.name;
-        if (ent.isDirectory()) await walk(path.join(dir, ent.name), relPath, depth + 1);
-        else if (ent.isFile()) {
-          if (isAppRouter) {
-            if (PAGE_FILE.test(ent.name)) {
-              let route = rel.replace(/\(([^)]+)\)\//g, '').replace(/\(([^)]+)\)/g, '');
-              route = route.replace(/\[+\.\.\.([^\]]+)\]+/g, '*').replace(/\[([^\]]+)\]/g, ':$1');
-              found.push({ route: '/' + (route || ''), file: path.join(dir, ent.name) });
-            }
-          } else if (/\.(tsx|ts|jsx|js|mdx)$/.test(ent.name)) {
-            const route = relPath.replace(/\.(tsx|ts|jsx|js|mdx)$/, '').replace(/\/index$/, '').replace(/\[+\.\.\.([^\]]+)\]+/g, '*').replace(/\[([^\]]+)\]/g, ':$1');
-            found.push({ route: '/' + route, file: path.join(dir, ent.name) });
-          }
-        }
-      }
-    };
-    await walk(fullRoot, '', 0);
-  };
-  await scan('src/app', true);
-  if (!found.length) await scan('app', true);
-  if (!found.length) await scan('src/pages', false);
-  if (!found.length) await scan('pages', false);
-  const seen = new Set();
-  return found.filter((p) => (seen.has(p.route) ? false : (seen.add(p.route), true))).sort((a, b) => a.route.localeCompare(b.route));
+  try { return await frameworks.listRoutes(folder); } catch { return []; }
 }
 
 // ---------- opencode discovery ----------
@@ -1067,9 +1565,29 @@ function firstChangedLine(patch) {
   return null;
 }
 
+// opencode reads text prompts — hand it real files it can open
+function copyRefsForAgent(refs) {
+  const dir = path.join(app.getPath('userData'), 'agent-refs');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { return ''; }
+  const names = [];
+  for (const r of refs) {
+    try {
+      const dest = path.join(dir, `${r.id.slice(0, 8)}-${path.basename(r.path)}`);
+      if (!fs.existsSync(dest)) fs.copyFileSync(r.path, dest);
+      names.push(dest);
+    } catch {}
+  }
+  return names.length
+    ? `\n\nReference images for visual guidance (open them if your model supports images): ${names.join(', ')}`
+    : '';
+}
+
 async function handleChatSend(_e, { id, messages, context }) {
   const settings = loadSettings();
-  const sys = buildSystemPrompt(settings, context, settings.agent);
+  const refs = (context && Array.isArray(context.referenceIds) && refsStore)
+    ? refsStore.byIds(context.referenceIds)
+    : [];
+  const sys = buildSystemPrompt(settings, { ...(context || {}), referenceCount: refs.length }, settings.agent);
   const msgs = [{ role: 'system', content: sys },
     ...(Array.isArray(messages) ? messages : []).map((m) => ({ role: m.role, content: String(m.content || '') }))];
 
@@ -1081,13 +1599,14 @@ async function handleChatSend(_e, { id, messages, context }) {
     const args = ['run', '--auto', '--format', 'json'];
     if (oc.model) args.push('--model', oc.model);
     if (oc.agent) args.push('--agent', oc.agent);
-    const prompt =
+    let prompt =
       `You are running inside the user's project at ${folder}. ` +
       'The chat context below may include selected page elements and their source code excerpts — use that context and make the requested change directly. ' +
       'Do not explore the whole codebase or read unrelated configuration/settings files unless strictly necessary. ' +
       'Do not narrate your investigation ("Let me look…", "Let me check…") — keep progress notes brief and put the result and the changes in your final answer. ' +
       'Do not modify config files (package.json, tsconfig, opencode config) unless explicitly asked.\n\n' +
       msgs.map((m) => (m.role === 'system' ? m.content : `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)).join('\n\n');
+    if (refs.length) prompt += copyRefsForAgent(refs);
     args.push(prompt);
     let proc;
     try {
@@ -1198,8 +1717,19 @@ async function handleChatSend(_e, { id, messages, context }) {
     return;
   }
 
-  const provider = settings.provider === 'openai' ? 'openai' : 'cloudflare';
-  let url, headers = { 'Content-Type': 'application/json' }, body, model;
+  // direct providers: attach the selected references to the latest user turn
+  if (refs.length) {
+    const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
+    if (lastUser) {
+      lastUser.content = [
+        { type: 'text', text: String(lastUser.content || '') },
+        ...refs.map((r) => ({ type: 'image_url', image_url: { url: r.dataUrl } })),
+      ];
+    }
+  }
+
+  const provider = settings.provider === 'openai' ? 'openai' : settings.provider === 'local' ? 'local' : 'cloudflare';
+  let url, headers = { 'Content-Type': 'application/json' }, body, model, localBase = '';
   if (provider === 'cloudflare') {
     const cf = settings.cloudflare;
     model = cf.model;
@@ -1210,6 +1740,18 @@ async function handleChatSend(_e, { id, messages, context }) {
     url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(cf.accountId)}/ai/run/${model}`;
     headers.Authorization = `Bearer ${cf.token}`;
     body = { messages: msgs, stream: true };
+  } else if (provider === 'local') {
+    // any OpenAI-compatible server on this machine: Ollama, LM Studio, llama.cpp, vLLM…
+    const lo = settings.local || {};
+    localBase = String(lo.baseUrl || 'http://localhost:11434/v1').replace(/\/+$/, '');
+    if (!lo.model) {
+      overlaySend('chat:error', { id, error: 'A local model is selected but no model name is set. Open Settings (⌘,) → Local → refresh models.' });
+      return;
+    }
+    model = lo.model;
+    url = `${localBase}/chat/completions`;
+    if (lo.apiKey) headers.Authorization = `Bearer ${lo.apiKey}`; // most local servers ignore it
+    body = { model, messages: msgs, stream: true };
   } else {
     const oa = settings.openai;
     model = oa.model;
@@ -1263,8 +1805,16 @@ async function handleChatSend(_e, { id, messages, context }) {
     }
     overlaySend('chat:done', { id });
   } catch (err) {
-    if (ctrl.signal.aborted) overlaySend('chat:done', { id });
-    else overlaySend('chat:error', { id, error: err?.message || String(err) });
+    if (ctrl.signal.aborted) {
+      overlaySend('chat:done', { id });
+    } else {
+      let msg = err?.message || String(err);
+      if (provider === 'local') {
+        const code = err?.cause?.code ? ` (${err.cause.code})` : '';
+        msg = `Could not reach the local model server at ${localBase}${code}. Is it running? ${msg}`;
+      }
+      overlaySend('chat:error', { id, error: msg });
+    }
   } finally {
     chatAborts.delete(id);
   }
@@ -1273,12 +1823,17 @@ async function handleChatSend(_e, { id, messages, context }) {
 // ---------- menu ----------
 function buildMenu() {
   const isMac = process.platform === 'darwin';
+  // project-only shortcuts are inert on the dashboard (recent projects)
+  const live = () => !homeMode && devState.state === 'running';
   const menu = [
     ...(isMac ? [{
       label: app.name, submenu: [
         { role: 'about' },
         { type: 'separator' },
-        { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => overlaySend('ui:openProject', {}) },
+        { label: 'Open Project', submenu: [
+          { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => overlaySend('ui:openProject', {}) },
+          { label: 'Attach Project…', accelerator: 'CmdOrCtrl+Shift+O', click: () => overlaySend('ui:openAttach', {}) },
+        ] },
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => overlaySend('ui:openSettings', {}) },
         { type: 'separator' },
         { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
@@ -1287,7 +1842,10 @@ function buildMenu() {
       ],
     }] : [{
       label: 'File', submenu: [
-        { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => overlaySend('ui:openProject', {}) },
+        { label: 'Open Project', submenu: [
+          { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => overlaySend('ui:openProject', {}) },
+          { label: 'Attach Project…', accelerator: 'CmdOrCtrl+Shift+O', click: () => overlaySend('ui:openAttach', {}) },
+        ] },
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => overlaySend('ui:openSettings', {}) },
         { type: 'separator' },
         { role: 'quit' },
@@ -1296,28 +1854,28 @@ function buildMenu() {
     { role: 'editMenu' },
     {
       label: 'Page', submenu: [
-        { label: 'Back', accelerator: 'CmdOrCtrl+[', click: () => navGo(-1) },
-        { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: () => navGo(1) },
-        { label: 'Reload Page', accelerator: 'CmdOrCtrl+R', click: () => pageView && pageView.webContents.reload() },
-        { label: 'Page DevTools', accelerator: 'CmdOrCtrl+Alt+I', click: () => pageView && pageView.webContents.toggleDevTools() },
+        { label: 'Back', accelerator: 'CmdOrCtrl+[', click: () => { if (live()) navGo(-1); } },
+        { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: () => { if (live()) navGo(1); } },
+        { label: 'Reload Page', accelerator: 'CmdOrCtrl+R', click: () => { if (live() && pageView) pageView.webContents.reload(); } },
+        { label: 'Page DevTools', accelerator: 'CmdOrCtrl+Alt+I', click: () => { if (live() && pageView) pageView.webContents.toggleDevTools(); } },
       ],
     },
     {
       label: 'Withlook', submenu: [
         { label: 'Home', accelerator: 'CmdOrCtrl+Shift+H', click: () => openHome() },
-        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => toggleSidebar() },
-        { label: 'Toggle Chat', accelerator: 'CmdOrCtrl+Shift+J', click: () => toggleChat() },
-        { label: 'Select Element on Page', accelerator: 'CmdOrCtrl+E', click: () => startPicker() },
-        { label: 'Focus Chat', accelerator: 'CmdOrCtrl+K', click: () => overlaySend('ui:focusChat', {}) },
-        { label: 'Toggle Float', accelerator: 'CmdOrCtrl+F', click: () => toggleFloat() },
-        { label: 'Toggle Chat Panel', accelerator: 'CmdOrCtrl+J', click: () => overlaySend('ui:togglePanel', {}) },
+        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => { if (!homeMode) toggleSidebar(); } },
+        { label: 'Toggle Chat', accelerator: 'CmdOrCtrl+Shift+J', click: () => { if (live()) toggleChat(); } },
+        { label: 'Select Element on Page', accelerator: 'CmdOrCtrl+E', click: () => { if (live()) startPicker(); } },
+        { label: 'Focus Chat', accelerator: 'CmdOrCtrl+K', click: () => { if (live()) overlaySend('ui:focusChat', {}); } },
+        { label: 'Toggle Float', accelerator: 'CmdOrCtrl+F', click: () => { if (live()) toggleFloat(); } },
+        { label: 'Toggle Chat Panel', accelerator: 'CmdOrCtrl+J', click: () => { if (live()) overlaySend('ui:togglePanel', {}); } },
       ],
     },
     {
       label: 'Canvas', submenu: [
-        { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => doCanvasAction('in') },
-        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+Minus', click: () => doCanvasAction('out') },
-        { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => doCanvasAction('fit') },
+        { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => { if (live()) doCanvasAction('in'); } },
+        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+Minus', click: () => { if (live()) doCanvasAction('out'); } },
+        { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => { if (live()) doCanvasAction('fit'); } },
       ],
     },
     { role: 'windowMenu' },
@@ -1434,7 +1992,7 @@ function createWindow() {
   sidebarView.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'sidebar.html')).catch(() => {});
   tabbarView.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'tabbar.html')).catch(() => {});
   tabbarView.webContents.on('did-finish-load', () => broadcastTabs());
-  loaderView.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'loader.html')).catch(() => {});;
+  loaderView.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'loader.html')).catch(() => {});
 
   const wc = pageView.webContents;
   wc.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
@@ -1448,7 +2006,11 @@ function createWindow() {
 
   overlayView.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'overlay.html'));
   overlayView.webContents.on('ipc-message', (_e, ch) => {
-    if (ch === 'ui:ready') { overlaySend('dev:status', devState); overlaySend('page:nav', navInfo()); }
+    if (ch === 'ui:ready') {
+      overlaySend('dev:status', devState);
+      overlaySend('page:nav', navInfo());
+      try { overlayView.webContents.send('refs:state', refsState()); } catch {}
+    }
   });
   layout();
 }
@@ -1456,7 +2018,20 @@ function createWindow() {
 // ---------- IPC ----------
 function wireIpc() {
   ipcMain.handle('settings:get', () => loadSettings());
-  ipcMain.handle('settings:save', (_e, s) => { saveSettings(s); return true; });
+  ipcMain.handle('settings:save', (_e, s) => {
+    const cur = loadSettings();
+    if (s && typeof s === 'object') s.mcp = cur.mcp; // connectors are managed by the connectors modal
+    saveSettings(s);
+    return true;
+  });
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    releases: 'https://github.com/Jaal-Yantra-Textiles/onlook/releases',
+  }));
+  ipcMain.handle('app:releases', () => {
+    shell.openExternal('https://github.com/Jaal-Yantra-Textiles/onlook/releases').catch(() => {});
+    return true;
+  });
   ipcMain.handle('project:choose', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
@@ -1471,77 +2046,106 @@ function wireIpc() {
     showPreviewWindow();
     return true;
   });
-  ipcMain.handle('create:openPage', () => {
+  ipcMain.handle('create:openPage', async () => {
     stopDev(true); // stop any running server but keep the view we are about to replace
     cancelPicker();
-    pageView.webContents.loadFile(CREATE_FILE).catch((e) => console.error(e.message));
+    if (panelOpen) setPanelOpen(false); // the create page owns the window — no chat overlay
+    homeMode = true;
+    try { if (previewWin && !previewWin.isDestroyed()) previewWin.close(); } catch {}
+    broadcastTabs();
+    layout();
+    await swapPageFile(CREATE_FILE); // hide → load → show, so there is no white flash
     return true;
   });
   ipcMain.handle('create:pickLocation', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
   });
-  ipcMain.handle('create:submit', async (_e, { parent, name }) => {
-    if (!parent || !name || !/^[a-zA-Z0-9][a-zA-Z0-9-_]*$/.test(name)) {
-      return { ok: false, error: 'Invalid project name — use letters, numbers, dashes.' };
-    }
-    const folder = path.join(parent, name);
-    if (fs.existsSync(folder)) return { ok: false, error: 'A folder with that name already exists there.' };
+  ipcMain.handle('create:templates', () => scaffold.TEMPLATES);
+  ipcMain.handle('create:submit', async (_e, opts) => {
+    const p = scaffold.plan(opts || {});
+    if (!p.ok) return { ok: false, error: p.error };
+
     stopDev(true); // keep the create page on screen while scaffolding
     devLogs = [];
-    setDevStatus({ state: 'starting', folder, pm: 'create-next-app', port: null, url: null, error: null });
+    setDevStatus({ state: 'starting', folder: p.folder, pm: 'scaffold', scaffold: true, framework: null, port: null, url: null, error: null, external: false });
     const sendPage = (ch, d) => { try { pageView.webContents.send(ch, d); } catch {} };
-    pushDevLog(`$ npx create-next-app@latest ${name}   (in ${parent})`);
+    pushDevLog(`$ ${p.label}   (in ${p.cwd || p.folder})`);
+
+    // onboarding: add it to Recent projects and return to the dashboard — never auto-start it
+    const created = (folder) => {
+      const pm = detectPM(folder);
+      if (store) store.upsertProject({ folder, name: path.basename(folder), pm, port: null }).catch((e) => console.error('store upsert failed', e.message));
+      setDevStatus({ state: 'idle', url: null, port: null, framework: null, scaffold: false, error: null, external: false });
+      sendPage('create:status', { phase: 'created', folder });
+      setTimeout(() => { openHome(); }, 700);
+      return { ok: true, folder };
+    };
+    const failed = (error) => {
+      setDevStatus({ state: 'error', error, scaffold: false });
+      sendPage('create:status', { phase: 'error', error });
+      return { ok: false, error };
+    };
+
+    // plain HTML: written in-process, no network, no tooling
+    if (p.kind === 'html') {
+      const r = scaffold.writePlainHtml(p.folder, p.name);
+      if (!r.ok) return failed(r.error || 'Could not write the starter files.');
+      for (const f of r.files) pushDevLog(`withlook: wrote ${f}`);
+      if (r.git) pushDevLog('withlook: initialized a git repository');
+      return created(p.folder);
+    }
+
+    if (p.mkdir) { try { fs.mkdirSync(p.folder, { recursive: true }); } catch {} }
+
     return new Promise((resolve) => {
-      const cmd = `npx --yes create-next-app@latest ${JSON.stringify(name)} --ts --eslint --tailwind --app --src-dir --import-alias "@/*" --use-npm --yes`;
       let proc;
       try {
-        proc = spawn(cmd, { cwd: parent, env: { ...process.env, CI: 'true' }, shell: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
-      } catch (e) { return resolve({ ok: false, error: e.message }); }
+        proc = spawn(p.cmd, p.args || [], {
+          cwd: p.cwd || p.parent,
+          env: { ...process.env, CI: '1', BROWSER: 'none' },
+          shell: !!p.shell,
+          detached: process.platform !== 'win32',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } catch (e) { return resolve(failed(e.message)); }
       createProc = proc;
       createCancelled = false;
       const onLine = (line) => { pushDevLog(line); sendPage('create:log', line); };
       readline.createInterface({ input: proc.stdout }).on('line', onLine);
       readline.createInterface({ input: proc.stderr }).on('line', onLine);
-      proc.on('error', (e) => {
-        createProc = null;
-        sendPage('create:status', { phase: 'error', error: e.message });
-        resolve({ ok: false, error: e.message });
-      });
+      proc.on('error', (e) => { createProc = null; resolve(failed(e.message)); });
       proc.on('exit', (code) => {
         const wasCancelled = createCancelled;
         createProc = null;
-        if (code === 0) {
-          const pm = detectPM(folder);
-          // onboarding: add it to Recent projects and return to the dashboard — never auto-start it
-          if (store) store.upsertProject({ folder, name, pm, port: null }).catch((e) => console.error('store upsert failed', e.message));
-          setDevStatus({ state: 'idle', url: null, port: null, error: null, external: false });
-          sendPage('create:status', { phase: 'created', folder });
-          setTimeout(() => { openHome(); }, 700);
-          resolve({ ok: true, folder });
-        } else if (wasCancelled) {
-          setDevStatus({ state: 'idle' });
+        if (wasCancelled) {
+          setDevStatus({ state: 'idle', scaffold: false });
           sendPage('create:status', { phase: 'cancelled' });
           resolve({ ok: false, error: 'Cancelled — partial files may remain in the folder.' });
-        } else {
-          const error = `create-next-app exited with code ${code}`;
-          setDevStatus({ state: 'error', error });
-          sendPage('create:status', { phase: 'error', error });
-          resolve({ ok: false, error });
+          return;
         }
+        if (code !== 0) { resolve(failed(`${p.label} exited with code ${code}`)); return; }
+        // a custom command can "succeed" without writing anything
+        if (p.kind === 'custom') {
+          let entries = [];
+          try { entries = fs.readdirSync(p.folder); } catch {}
+          if (!entries.length) { resolve(failed('The command finished, but the folder is still empty.')); return; }
+        }
+        resolve(created(p.folder));
       });
     });
   });
   ipcMain.handle('dev:start', async (_e, folder) => {
     const resolved = resolveProjectFolder(folder);
     if (!resolved) {
-      return { ok: false, error: 'That folder has no package.json — is it a Next.js project?' };
+      return { ok: false, error: 'That folder has no package.json or index.html — is it a web project?' };
     }
     startDev(resolved);
     return { ok: true, folder: resolved };
   });
   ipcMain.handle('dev:stop', () => { stopDev(); return true; });
   ipcMain.handle('dev:restart', () => restartDev());
+  ipcMain.handle('dev:attach', (_e, url) => attachDevServerUrl(url, devState.projectFolder || devState.folder));
   ipcMain.handle('dev:status', () => devState);
   ipcMain.handle('dev:logs', () => devLogs);
   ipcMain.handle('page:load', (_e, url) => {
@@ -1563,6 +2167,7 @@ function wireIpc() {
   ipcMain.on('canvas:action', (_e, d) => doCanvasAction(d && d.action, d && d.data));
   ipcMain.handle('git:status', gitStatus);
   ipcMain.handle('git:diff', gitDiff);
+  ipcMain.handle('git:share-patch', (_e, mode) => gitSharePatch(mode === 'save' ? 'save' : 'copy'));
   ipcMain.handle('git:commit', gitCommit);
   ipcMain.handle('git:push', gitPush);
   ipcMain.handle('sandbox:status', async () => {
@@ -1595,6 +2200,117 @@ function wireIpc() {
   ipcMain.handle('pages:list', () => listPages());
   ipcMain.handle('code:write', writeCodeFile);
   ipcMain.handle('opencode:list', () => opencodeList());
+  // local OpenAI-compatible servers: list installed models (Ollama, LM Studio, llama.cpp, vLLM…)
+  ipcMain.handle('local:models', (_e, baseUrl) => listModels(baseUrl));
+  // canvas reference images
+  ipcMain.handle('refs:list', () => refsState());
+  ipcMain.handle('refs:pick', () => pickReferences());
+  ipcMain.handle('refs:add-data', (_e, d) => {
+    if (!refsStore) return { ok: false, error: 'No project.', ...refsState() };
+    const url = String((d && d.dataUrl) || '');
+    const m = url.match(/^data:image\/[a-z0-9.+-]+;base64,(.+)$/i);
+    if (!m) return { ok: false, error: 'Not an image.', ...refsState() };
+    if (m[1].length > 24 * 1024 * 1024) return { ok: false, error: 'Image is too large.', ...refsState() };
+    const r = refsStore.addBuffer(Buffer.from(m[1], 'base64'), String((d && d.name) || 'image.png'));
+    if (r.ok) { refsOpen = true; refsSend(); }
+    return { ok: r.ok, error: r.error, ...refsState() };
+  });
+  ipcMain.handle('refs:paste', () => {
+    if (!refsStore) return { ok: false, error: 'No project.', ...refsState() };
+    const img = clipboard.readImage();
+    if (img.isEmpty()) return { ok: false, error: 'No image in the clipboard.', ...refsState() };
+    const r = refsStore.addBuffer(img.toPNG(), 'pasted image.png');
+    if (r.ok) { refsOpen = true; refsSend(); }
+    return { ok: r.ok, error: r.error, ...refsState() };
+  });
+  ipcMain.handle('refs:remove', (_e, id) => {
+    if (refsStore) refsStore.remove(String(id));
+    refsSend();
+    return refsState();
+  });
+  ipcMain.handle('refs:toggle', (_e, id) => {
+    if (refsStore) refsStore.toggle(String(id));
+    refsSend();
+    return refsState();
+  });
+  ipcMain.handle('refs:tray', (_e, open) => {
+    refsOpen = !!open;
+    refsSend();
+    return refsState();
+  });
+  // canvas card drag/resize (renderer → main, no reply)
+  ipcMain.on('ref:move', (_e, d) => {
+    if (!refsStore || !d || !d.id) return;
+    const item = refsStore.items.find((i) => i.id === d.id);
+    if (!item) return;
+    const z = canvas.zoom || 1;
+    refsStore.setBox(item.id, {
+      x: item.x + (Number(d.dx) || 0) / z,
+      y: item.y + (Number(d.dy) || 0) / z,
+    });
+    layoutRefCards();
+    scheduleRefsSave();
+  });
+  ipcMain.on('ref:resize', (_e, d) => {
+    if (!refsStore || !d || !d.id) return;
+    const item = refsStore.items.find((i) => i.id === d.id);
+    if (!item) return;
+    const z = canvas.zoom || 1;
+    refsStore.setBox(item.id, {
+      w: item.w + (Number(d.dw) || 0) / z,
+      h: item.h + (Number(d.dh) || 0) / z,
+    });
+    layoutRefCards();
+    scheduleRefsSave();
+  });
+  ipcMain.on('ref:move-end', () => { if (refsStore) refsStore.save(); });
+  // MCP / Figma
+  ipcMain.handle('mcp:status', () => mcpStatus());
+  ipcMain.handle('mcp:servers', () => mcpStatus());
+  ipcMain.handle('mcp:save', (_e, servers) => mcpSave(servers));
+  ipcMain.handle('mcp:connect', (_e, id) => mcpConnect(String(id), { interactive: true }));
+  ipcMain.handle('mcp:disconnect', (_e, id) => mcpDisconnect(String(id)));
+  ipcMain.handle('mcp:signout', (_e, id) => mcpSignOut(String(id)));
+  ipcMain.handle('mcp:preset-figma', () => mcpAddFigmaRemote());
+  ipcMain.handle('mcp:preset-figma-local', () => mcpAddFigmaLocal());
+  ipcMain.handle('app:openExternal', (_e, url) => {
+    const u = String(url || '');
+    if (!/^https?:\/\//i.test(u)) return false;
+    shell.openExternal(u).catch(() => {});
+    return true;
+  });
+  ipcMain.handle('figma:import', async (_e, input) => {
+    const f = await ensureFigmaClient();
+    if (!f.ok) return f;
+    const st = mcpClients.get(f.id);
+    if (!st || !st.client) return { ok: false, error: 'The Figma connector is not available.' };
+    try {
+      const r = await importFigma(st.client, input);
+      if (!r.ok) return r;
+      let refId = null;
+      if (r.image && r.image.data && refsStore) {
+        const add = refsStore.addBuffer(Buffer.from(r.image.data, 'base64'), `figma-${r.nodeId.replace(':', '-')}.png`);
+        if (add.ok) {
+          refId = add.item.id;
+          refsOpen = true;
+          refsSend();
+        }
+      }
+      pushDevLog(`withlook: imported Figma frame ${r.nodeId} (${r.tools.join(', ')})`);
+      return {
+        ok: true,
+        nodeId: r.nodeId,
+        fileKey: r.fileKey,
+        code: r.code,
+        variables: r.variables,
+        refId,
+        hasImage: !!r.image,
+        tools: r.tools,
+      };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
   ipcMain.on('sidebar:ui', (_e, d) => {
     if (!d) return;
     if (d.a === 'loadSession' && d.d) overlaySend('ui:loadSession', d.d);
@@ -1649,10 +2365,13 @@ function wireIpc() {
   ipcMain.on('page:ui', (_e, a) => {
     if (a === 'open') overlaySend('ui:openProject', {});
     else if (a === 'create') overlaySend('ui:newProject', {});
+    else if (a && a.action === 'attach') overlaySend('ui:openAttach', {});
     else if (a === 'settings') overlaySend('ui:openSettings', {});
+    else if (a === 'home') openHome();
     else if (a && a.action === 'openFolder' && a.folder) overlaySend('ui:openFolder', a.folder);
   });
   ipcMain.handle('welcome:data', async () => ({
+    version: app.getVersion(),
     projects: store
       ? (await store.listProjects().catch(() => [])).filter(isRealProject).map((p) => ({
           ...p, repo: repoFromFolder(resolveProjectFolder(p.folder) || p.folder),
@@ -1669,11 +2388,15 @@ app.whenReady().then(async () => {
   }
   buildMenu();
   store = new MemoryStore(app.getPath('userData'));
+  refsStore = new References(app.getPath('userData'));
   // test/smoke runs must never write into the user's real project memory
-  const initRes = await store.init((SMOKE || TEST_PROJ || TEST_OPENCODE || TEST_LOAD) ? '' : loadSettings().memory.url);
+  const initRes = await store.init((SMOKE || TEST_PROJ || TEST_OPENCODE || TEST_LOAD || TEST_STATIC) ? '' : loadSettings().memory.url);
   if (initRes.error) console.error('memory store: postgres unavailable, using local file —', initRes.error);
   wireIpc();
   createWindow();
+  for (const s of loadSettings().mcp.servers) {
+    if (s.enabled) mcpConnect(s.id).catch(() => {});
+  }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   // launch always lands on the dashboard — projects never start automatically
   if (SMOKE) {
@@ -1715,10 +2438,22 @@ app.whenReady().then(async () => {
     }, 2600);
   }
   if (TEST_PROJ) {
+    // seed a reference image so the canvas tray is exercised end-to-end
+    try {
+      const ud = app.getPath('userData');
+      const assets = path.join(ud, 'reference-assets');
+      fs.mkdirSync(assets, { recursive: true });
+      const seed = path.join(assets, 'seed.png');
+      fs.writeFileSync(seed, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+      const projectKey = resolveProjectFolder(TEST_PROJ) || TEST_PROJ;
+      fs.writeFileSync(path.join(ud, 'references.json'), JSON.stringify({ [projectKey]: [{ id: 'seed', path: seed, name: 'seed.png', include: true }] }));
+      refsStore = new References(ud); // re-read the seeded store (the constructor ran before this)
+    } catch (e) { console.log('REFS_SEED_FAIL ' + e.message); }
     startDev(TEST_PROJ);
     let sawLoader = false;
     let sawPanelFlash = false;
     let chatsOk = false;
+    let refsCardOk = false;
     const loaderPoll = setInterval(() => {
       if (devState.state === 'starting') {
         if (loaderVisible) sawLoader = true;
@@ -1739,6 +2474,11 @@ app.whenReady().then(async () => {
       if (!ok) { console.log('ITEST_LOGS\n' + devLogs.join('\n')); app.exit(1); return; }
       const sandboxOk = !!devState.sandbox && devState.folder !== TEST_PROJ && fs.existsSync(devState.folder);
       console.log(`SANDBOX ${sandboxOk ? 'PASS' : 'FAIL'} mode=${devState.sandbox && devState.sandbox.mode} folder=${devState.folder}`);
+      const cards = [...refCards.values()];
+      const b = cards[0] ? cards[0].getBounds() : null;
+      const pa = previewArea();
+      refsCardOk = !!b && b.width > 0 && b.x >= pa.x - b.width && b.x < pa.x + pa.w && b.y < pa.y + pa.h;
+      console.log(`REFS_CARD ${refsCardOk ? 'PASS' : 'FAIL'} n=${cards.length} bounds=${b ? b.x + ',' + b.y + ' ' + b.width + 'x' + b.height : 'none'}`);
       // the sidebar header must show the GitHub repo (owner/name) and branch
       (async () => {
         let repoText = '';
@@ -1841,7 +2581,7 @@ app.whenReady().then(async () => {
                     console.log(`HOME ${okHome ? 'PASS' : 'FAIL'} url=${homeUrl}`);
                     try { stopDev(false); } catch {}
                     if (devState.sandbox) { sandbox.discardSandbox(devState.sandbox); devState.sandbox = null; }
-                    app.exit(okBtn && tabsOk && commitOk && pushOk && okR && urlOk && okHome && chatsOk ? 0 : 1);
+                    app.exit(okBtn && tabsOk && commitOk && pushOk && okR && urlOk && okHome && chatsOk && refsCardOk ? 0 : 1);
                   }, 1500))
                   .catch((e) => { console.log('HOME FAIL ' + e.message); app.exit(1); });
               }
@@ -1947,6 +2687,37 @@ app.whenReady().then(async () => {
         app.exit(1);
       }
     }, 1000);
+  }
+  if (TEST_STATIC) {
+    // create a plain-HTML project, serve it with the built-in static server, check routes
+    const base = path.join(os.tmpdir(), 'withlook-static-test');
+    const folder = path.join(base, 'demo-site');
+    fs.rmSync(base, { recursive: true, force: true });
+    const written = scaffold.writePlainHtml(folder, 'demo-site');
+    if (!written.ok) { console.log('STATIC_FAIL ' + written.error); app.exit(1); }
+    startDev(folder);
+    const poll = setInterval(async () => {
+      if (devState.state === 'running') {
+        clearInterval(poll);
+        const pages = await listPages();
+        const routes = pages.map((p) => p.route);
+        let body = '';
+        try { body = await (await fetch(devState.url, { signal: AbortSignal.timeout(5000) })).text(); } catch {}
+        const ok = !!devState.framework && devState.framework.id === 'static' &&
+          routes.includes('/') && routes.includes('/about') && /Your new site is live/.test(body);
+        console.log((ok ? 'STATIC_PASS' : 'STATIC_FAIL') +
+          ` framework=${devState.framework && devState.framework.id} pages=${routes.join(',')} served=${/Your new site is live/.test(body)}`);
+        stopDev(true); // close the static server, keep the view (no page swap while exiting)
+        if (devState.sandbox) { sandbox.discardSandbox(devState.sandbox); devState.sandbox = null; }
+        fs.rmSync(base, { recursive: true, force: true });
+        app.exit(ok ? 0 : 1);
+      } else if (devState.state === 'error') {
+        clearInterval(poll);
+        console.log('STATIC_FAIL ' + devState.error + '\n' + devLogs.slice(-10).join('\n'));
+        app.exit(1);
+      }
+    }, 400);
+    setTimeout(() => { clearInterval(poll); console.log('STATIC_FAIL timeout state=' + devState.state); app.exit(1); }, 60000);
   }
   if (TEST_LOAD) {
     // load a real project through the same path the app uses (sandbox + dev server)

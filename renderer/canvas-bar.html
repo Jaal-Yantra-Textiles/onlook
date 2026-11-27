@@ -2,37 +2,80 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <link rel="stylesheet" href="elements.css" />
   <style>
-    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
-    body { display: flex; align-items: center; gap: 4px; padding: 0 6px;
-      font-family: -apple-system, system-ui, sans-serif; -webkit-app-region: no-drag; }
-    .bar { display: flex; align-items: center; gap: 4px; background: rgba(9,9,11,0.94);
-      border: 1px solid #27272a; border-radius: 11px; padding: 4px 6px;
-      box-shadow: 0 6px 22px rgba(0,0,0,0.4); }
-    button { background: #18181b; border: 1px solid #27272a;
-      color: #d4d4d8; border-radius: 7px; width: 26px; height: 26px; font-size: 14px;
-      line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-    button:hover { background: #27272a; }
-    #zoom { width: 46px; font-size: 11px; font-weight: 600; }
-    #hand.on { background: rgba(92,225,199,0.18); border-color: rgba(92,225,199,0.5); color: #5ce1c7; }
-    #multi.on { background: rgba(92,225,199,0.18); border-color: rgba(92,225,199,0.5); color: #5ce1c7; }
-    .sep { width: 1px; height: 18px; background: rgba(255,255,255,0.09); margin: 0 2px; }
+    html, body { background: transparent; overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; padding: 0 6px;
+      font-family: var(--wl-font); -webkit-app-region: no-drag; }
+    .bar {
+      display: flex; align-items: center; gap: 3px;
+      background: rgba(9, 9, 11, 0.94);
+      border: 1px solid var(--wl-line); border-radius: var(--wl-r-lg);
+      padding: 4px 5px; box-shadow: var(--wl-shadow-md);
+    }
+    .group { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; }
+    .bar .wl-btn.icon { width: 24px; height: 24px; padding: 0; font-size: 13px; flex: 0 0 auto; }
+    #zoom { width: 46px; font-family: var(--wl-mono); font-size: 11px; font-weight: 600; }
+    #hand.on, #multi.on { background: var(--wl-mint-bg); border-color: var(--wl-mint-line); color: var(--wl-mint); }
+    .sep { width: 1px; height: 18px; background: rgba(255, 255, 255, 0.09); margin: 0 2px; }
+    #frames { font-family: var(--wl-mono); font-size: 10.5px; color: var(--wl-text-dim); }
+    .pan-hint {
+      display: none; align-items: center; gap: 8px; padding: 0 10px;
+      font-size: 11.5px; color: var(--wl-text-dim); white-space: nowrap;
+    }
+    .pan-hint::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--wl-mint); box-shadow: 0 0 8px var(--wl-mint-line);
+    }
+    body.panning .group, body.panning .sep, body.panning #frames { display: none; }
+    body.panning .pan-hint { display: flex; }
   </style>
 </head>
 <body>
   <div class="bar">
-    <button id="out" title="Zoom out (⌘−)">−</button>
-    <button id="zoom" title="Actual size (⌘0)">100%</button>
-    <button id="in" title="Zoom in (⌘+)">+</button>
+    <div class="group">
+      <button class="wl-btn icon" id="out" title="Zoom out (⌘−)" aria-label="Zoom out">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <button class="wl-btn" id="zoom" title="Actual size · reset pan (⌘0)">100%</button>
+      <button class="wl-btn icon" id="in" title="Zoom in (⌘+)" aria-label="Zoom in">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
     <div class="sep"></div>
-    <button id="hand" title="Pan the canvas (drag)">✋</button>
-    <button id="multi" title="Show all tabs side by side">▦</button>
-    <button id="float-btn" title="Toggle float chat (⌘F)">⤢</button>
-    <div class="sep"></div>
-    <button id="restart" hidden title="Restart the dev server">⟳</button>
-    <button id="stop" hidden title="Stop the dev server">⏹</button>
+
+    <div class="group">
+      <button class="wl-btn icon" id="hand" title="Pan the canvas — drag anywhere" aria-label="Pan">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg>
+      </button>
+      <button class="wl-btn icon" id="multi" title="Show every tab side by side" aria-label="Multi-page canvas">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      </button>
+      <button class="wl-btn icon" id="center" title="Center the canvas" aria-label="Center canvas">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22"/></svg>
+      </button>
+      <button class="wl-btn icon" id="refs-add" title="Add a reference image" aria-label="Add reference image">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="9.5" r="1.6"/><path d="M21 15.5l-4.5-4.5L8 19.5"/></svg>
+      </button>
+      <button class="wl-btn icon" id="float-btn" title="Float / dock the chat (⌘F)" aria-label="Toggle chat layout">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16"/><path d="M6.5 9h4M6.5 12h4"/></svg>
+      </button>
+    </div>
+
+    <div class="sep" id="server-sep" hidden></div>
+    <div class="group" id="server-group" hidden>
+      <button class="wl-btn icon" id="restart" hidden title="Restart the dev server" aria-label="Restart server">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+      </button>
+      <button class="wl-btn icon danger" id="stop" hidden title="Stop the dev server" aria-label="Stop server">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
+      </button>
+    </div>
+
     <div class="sep" id="frames-sep" hidden></div>
-    <button id="frames" hidden title="Close the extra canvas tabs">1×</button>
+    <button class="wl-btn sm" id="frames" hidden title="Close the extra canvas frames"></button>
+    <span class="pan-hint" id="pan-hint">drag to pan · Esc to exit</span>
   </div>
   <script>
     // read the bridge at CALL time — binding it once at parse time races the preload
@@ -47,6 +90,8 @@
       g('zoom').onclick = () => act('fit');
       g('hand').onclick = () => act('panMode', !panMode);
       g('multi').onclick = () => act('multiCanvas');
+      g('center').onclick = () => act('center');
+      g('refs-add').onclick = () => act('addRef');
       g('float-btn').onclick = () => act('toggleFloat');
       g('frames').onclick = () => act('clearFrames');
       g('stop').onclick = () => act('stopDev');
@@ -54,17 +99,21 @@
       if (window.wl && window.wl.onCanvasState) window.wl.onCanvasState((s) => {
         g('zoom').textContent = Math.round(s.zoom * 100) + '%';
         panMode = !!s.panMode;
+        document.body.classList.toggle('panning', panMode);
         g('hand').classList.toggle('on', panMode);
+        g('multi').classList.toggle('on', !!s.multi);
         const n = s.frames || 1;
         const fb = g('frames');
         fb.hidden = n <= 1;
-        fb.textContent = n > 1 ? n + '×' : '';
-        fb.title = n > 1 ? 'Close the ' + (n - 1) + ' extra canvas tab' + (n > 2 ? 's' : '') : '';
+        fb.textContent = n > 1 ? n + ' frames' : '';
+        fb.title = n > 1 ? 'Close the ' + (n - 1) + ' extra frame' + (n > 2 ? 's' : '') : '';
         g('frames-sep').hidden = n <= 1;
         const dev = s.dev || 'idle';
-        g('stop').hidden = !(dev === 'running' || dev === 'starting');
+        const up = dev === 'running' || dev === 'starting';
+        g('stop').hidden = !up;
         g('restart').hidden = dev !== 'running';
-        g('multi').classList.toggle('on', !!s.multi);
+        g('server-group').hidden = !up;
+        g('server-sep').hidden = !up;
       });
       window.__barReady = true;
     });

@@ -6,11 +6,30 @@ const els = {
   panel: $('panel'), pageChip: $('page-chip'), chips: $('chips'), addPick: $('add-pick'),
   newChat: $('new-chat'), settingsBtn: $('settings-btn'), collapse: $('collapse'),
   messages: $('messages'), footer: $('footer'), modelBadge: $('model-badge'), devBadge: $('dev-badge'), writeBtn: $('write-btn'), writeState: $('write-state'),
+  refsBtn: $('refs-btn'), refStrip: $('ref-strip'), figmaBtn: $('figma-btn'), figmaChip: $('figma-chip'),
+  connectors: $('connectors'), connectorsBackdrop: $('connectors-backdrop'), connectorsClose: $('connectors-close'),
+  connectorList: $('connector-list'), connectorEmpty: $('connector-empty'), connectorAdd: $('connector-add'),
+  connectorFigmaRemote: $('connector-figma-remote'),
+  connectorFigmaLocal: $('connector-figma-local'),
+  connectorAuth: $('connector-auth'),
+  connectorForm: $('connector-form'), cfName: $('cf-name'), cfTransport: $('cf-transport'), cfHttp: $('cf-http'),
+  cfUrl: $('cf-url'), cfStdio: $('cf-stdio'), cfCommand: $('cf-command'), cfArgs: $('cf-args'),
+  cfEnabled: $('cf-enabled'), cfOauth: $('cf-oauth'), cfOauthWrap: $('cf-oauth-wrap'),
+  cfClientId: $('cf-client-id'), cfClientSecret: $('cf-client-secret'), cfRedirect: $('cf-redirect'),
+  cfPat: $('cf-pat'), cfToken: $('cf-token'),
+  cfSave: $('cf-save'), cfCancel: $('cf-cancel'), cfStatus: $('cf-status'),
+  figmaModal: $('figma-modal'), fmBackdrop: $('fm-backdrop'), fmClose: $('fm-close'), fmUrl: $('fm-url'),
+  fmImport: $('fm-import'), fmStatus: $('fm-status'), fmResult: $('fm-result'), fmMeta: $('fm-meta'), fmCode: $('fm-code'),
+  attachModal: $('attach-modal'), attachBackdrop: $('attach-backdrop'), attachClose: $('attach-close'),
+  attachInput: $('attach-input'), attachSubmit: $('attach-submit'), attachStatus: $('attach-status'),
   quickBtn: $('quick-btn'), quickMenu: $('quick-menu'), quickSettings: $('quick-settings'),
   showPreviewBtn: $('show-preview'), previewLabel: $('preview-label'), logsBtn: $('logs-btn'), devlogPane: $('devlog-pane'), panelLogs: $('panel-logs'),
   settings: $('settings'), settingsClose: $('settings-close'), settingsBackdrop: $('settings-backdrop'),
   agentSeg: $('agent-seg'),
   providerFields: $('provider-fields'), ocFields: $('opencode-fields'),
+  localFields: $('local-fields'), localBase: $('local-base'), localKey: $('local-key'),
+  localModel: $('local-model'), localRefresh: $('local-refresh'), localStatus: $('local-status'),
+  localPresets: document.querySelectorAll('#local-presets .preset'),
   ocModel: $('oc-model'), ocAgent: $('oc-agent'), ocNote: $('oc-note'),
   provBtns: document.querySelectorAll('#prov-seg button'),
   cfFields: $('cf-fields'), oaFields: $('oa-fields'),
@@ -25,12 +44,14 @@ const els = {
   memUrl: $('mem-url'), memTest: $('mem-test'), memStatus: $('mem-status'),
   recentProjects: $('recent-projects'), recentMenu: $('recent-menu'), historyMenu: $('history-menu'), historyBtn: $('history-btn'),
   historyModal: $('history-modal'), hmList: $('hm-list'), hmClose: $('hm-close'), hmBackdrop: $('hm-backdrop'),
-  saveSettings: $('save-settings'), savedFlash: $('saved-flash'),
+  saveSettings: $('save-settings'), savedFlash: $('saved-flash'), appInfo: $('app-info'),
 };
 
 const state = {
   panelOpen: false,
   dock: false,
+  home: false,
+  attachOpen: false,
   previewOut: false,
   settingsOpen: false,
   picking: false,
@@ -47,6 +68,13 @@ const state = {
   pageUrl: '',
   settings: null,
   dev: null,
+  references: [],
+  refsOpen: false,
+  connectors: [],
+  connectorEdit: null,
+  connectorDraft: null,
+  connectorsOpen: false,
+  figma: null,
 };
 
 /* ---------- tiny markdown (with applyable file blocks) ---------- */
@@ -73,7 +101,7 @@ function renderMd(text) {
     code = code.replace(/\n$/, '');
     const m = info.match(/path=(\S+)/);
     out += m
-      ? `<span class="fileblock"><span class="fb-head"><code>${escapeHtml(m[1])}</code><button class="apply-file" data-file="${escapeHtml(m[1])}">apply</button></span><pre><code>${escapeHtml(code)}</code></pre></span>`
+      ? `<details class="fileblock"><summary class="fb-head"><code>${escapeHtml(m[1])}</code><button class="apply-file" data-file="${escapeHtml(m[1])}">apply</button></summary><pre><code>${escapeHtml(code)}</code></pre></details>`
       : `<pre><code>${escapeHtml(code)}</code></pre>`;
   }
   return `<p>${out}</p>`;
@@ -91,6 +119,7 @@ function uiToggleFloat() {
 function applyMode(m) {
   state.panelOpen = !!(m && m.open);
   state.dock = !!(m && m.dock);
+  state.home = !!(m && m.home);
   state.previewOut = !!(m && m.preview);
   document.body.classList.toggle('dock', state.dock);
   els.panel.hidden = !(state.panelOpen || state.dock);
@@ -104,6 +133,8 @@ function scrollBottom() { els.messages.scrollTop = els.messages.scrollHeight; }
 function clearChat() {
   state.history = [];
   state.selections = [];
+  state.figma = null;
+  renderFigmaChip();
   renderChips();
   els.messages.innerHTML = '<div class="empty">New conversation. Pick an element and ask away.</div>';
 }
@@ -150,6 +181,8 @@ function renderActivity(l) {
     return `<details class="oc-report"><summary>` +
       `<span>${rows.length} file${rows.length === 1 ? '' : 's'} changed</span>` +
       `<span class="rp-tot"><span class="a">+${add}</span> <span class="d">−${del}</span></span>` +
+      `<span class="rp-actions"><button class="rp-action" data-patch="copy" title="Copy the unified diff">copy</button>` +
+      `<button class="rp-action" data-patch="save" title="Save a .patch + manifest">save</button></span>` +
       `</summary><div class="rp-rows">${rows.join('')}</div></details>`;
   }
   if (l.kind === 'edit') {
@@ -207,8 +240,10 @@ function renderAssistant() {
   if (!state.assistantEl) return;
   const openGroups = new Set();
   const openEdits = new Set();
+  const openFiles = new Set();
   state.assistantEl.querySelectorAll('.oc-tools').forEach((d, i) => { if (d.open) openGroups.add(i); });
   state.assistantEl.querySelectorAll('.oc-edit').forEach((d, i) => { if (d.open) openEdits.add(i); });
+  state.assistantEl.querySelectorAll('.fileblock').forEach((d, i) => { if (d.open) openFiles.add(i); });
   state.assistantEl.innerHTML =
     '<div class="who">withlook</div>' +
     activityHtml(state.activity) +
@@ -216,6 +251,7 @@ function renderAssistant() {
     (state.streaming ? genStatusHtml('working…') : '');
   state.assistantEl.querySelectorAll('.oc-tools').forEach((d, i) => { if (openGroups.has(i)) d.open = true; });
   state.assistantEl.querySelectorAll('.oc-edit').forEach((d, i) => { if (openEdits.has(i)) d.open = true; });
+  state.assistantEl.querySelectorAll('.fileblock').forEach((d, i) => { if (openFiles.has(i)) d.open = true; });
 }
 
 /* ---------- chat ---------- */
@@ -223,6 +259,8 @@ function context() {
   return {
     url: state.pageUrl,
     writeMode: !!state.writeMode,
+    referenceIds: state.references.filter((r) => r.include).map((r) => r.id),
+    figma: state.figma ? { url: state.figma.url, nodeId: state.figma.nodeId, code: state.figma.code, variables: state.figma.variables } : null,
     selections: state.selections.map((s) => ({
       selector: s.selector, tag: s.tag, id: s.id, classes: String(s.classes).slice(0, 200),
       text: s.text, html: s.html, styles: s.styles,
@@ -268,7 +306,7 @@ function finishStream(ok) {
 }
 window.wl.onChatChunk(({ id, delta, kind, edit }) => {
   if (id !== state.streamId) return;
-  if (kind === 'turn' || kind === 'tool' || kind === 'edit') state.activity.push({ kind, text: String(delta).replace(/\n+$/, ''), edit });
+  if (kind === 'turn' || kind === 'tool' || kind === 'edit' || kind === 'report') state.activity.push({ kind, text: String(delta).replace(/\n+$/, ''), edit });
   else state.assistantBuf += delta;
   renderAssistant();
   scrollBottom();
@@ -299,6 +337,142 @@ function renderChips() {
   });
   els.addPick.style.display = state.selections.length ? '' : 'none';
 }
+
+/* ---------- reference images ---------- */
+function applyRefs(s) {
+  if (!s) return;
+  state.references = Array.isArray(s.items) ? s.items : [];
+  state.refsOpen = !!s.open;
+  renderRefs();
+}
+function renderRefs() {
+  const included = state.references.filter((r) => r.include);
+  if (els.refStrip) {
+    els.refStrip.hidden = included.length === 0;
+    els.refStrip.innerHTML = '';
+    for (const r of included) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'ref-chip';
+      chip.title = r.name + ' — click to exclude from this message';
+      const img = document.createElement('img');
+      img.src = r.thumb;
+      img.alt = '';
+      const name = document.createElement('span');
+      name.textContent = r.name;
+      chip.append(img, name);
+      chip.onclick = () => { if (window.wl.toggleRef) window.wl.toggleRef(r.id); };
+      els.refStrip.appendChild(chip);
+    }
+  }
+  if (els.refsBtn) {
+    const total = state.references.length;
+    els.refsBtn.textContent = total ? `refs · ${included.length}/${total}` : 'refs';
+    els.refsBtn.classList.toggle('on', total > 0);
+    els.refsBtn.title = total
+      ? `${included.length} of ${total} references included — click to ${state.refsOpen ? 'hide' : 'show'} the cards`
+      : 'Add reference images (⌘⇧V pastes from the clipboard)';
+  }
+}
+els.refsBtn.onclick = async () => {
+  if (!state.dev || !state.dev.projectFolder) { flashPageChip('open a project first'); return; }
+  if (!state.references.length) { await window.wl.pickRefs().catch(() => {}); return; }
+  await window.wl.toggleTray(!state.refsOpen).catch(() => {});
+};
+// drop an image anywhere on the chat panel to add it as a reference
+async function addDroppedImages(files) {
+  for (const file of files) {
+    if (!file.type || !file.type.startsWith('image/')) continue;
+    const dataUrl = await new Promise((res) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => res(null);
+      fr.readAsDataURL(file);
+    });
+    if (dataUrl && window.wl.addRefData) await window.wl.addRefData({ name: file.name, dataUrl }).catch(() => {});
+  }
+}
+for (const type of ['dragover', 'drop']) {
+  els.panel.addEventListener(type, (e) => {
+    e.preventDefault();
+    if (type === 'drop') addDroppedImages([...((e.dataTransfer && e.dataTransfer.files) || [])]);
+  });
+}
+
+/* ---------- figma (MCP) ---------- */
+function renderFigmaChip() {
+  if (!els.figmaChip) return;
+  els.figmaChip.innerHTML = '';
+  if (!state.figma) return;
+  const chip = document.createElement('span');
+  chip.className = 'chip figma';
+  chip.title = state.figma.url || '';
+  chip.textContent = 'figma · ' + state.figma.nodeId;
+  const x = document.createElement('button');
+  x.textContent = '×';
+  x.title = 'Remove the Figma frame from context';
+  x.onclick = () => { state.figma = null; renderFigmaChip(); };
+  chip.appendChild(x);
+  els.figmaChip.appendChild(chip);
+}
+function openFigma() {
+  closeSettings();
+  els.figmaModal.hidden = false;
+  els.fmStatus.textContent = '';
+  els.fmUrl.focus();
+}
+function closeFigma() { els.figmaModal.hidden = true; }
+function openAttach() {
+  closeSettings();
+  closeFigma();
+  closeConnectors();
+  state.attachOpen = true;
+  document.body.classList.add('settings-on');
+  if (window.wl.settingsModal) window.wl.settingsModal(true).catch(() => {});
+  els.attachModal.hidden = false;
+  els.attachStatus.textContent = '';
+  els.attachInput.focus();
+}
+function closeAttach() {
+  state.attachOpen = false;
+  els.attachModal.hidden = true;
+  document.body.classList.remove('settings-on');
+  if (window.wl.settingsModal) window.wl.settingsModal(false).catch(() => {});
+}
+els.attachClose.onclick = closeAttach;
+els.attachBackdrop.onclick = closeAttach;
+els.attachSubmit.onclick = async () => {
+  const url = els.attachInput.value.trim();
+  if (!url) { els.attachStatus.textContent = 'Enter a port or URL.'; return; }
+  els.attachSubmit.disabled = true;
+  els.attachStatus.innerHTML = '<span class="wl-spinner"></span> connecting…';
+  const r = await window.wl.devAttach(url).catch((e) => ({ ok: false, error: e.message }));
+  els.attachSubmit.disabled = false;
+  if (!r || !r.ok) { els.attachStatus.textContent = '✗ ' + ((r && r.error) || 'attach failed'); return; }
+  els.attachStatus.textContent = '✓ attached to ' + r.url;
+  setTimeout(closeAttach, 350);
+};
+els.attachInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') els.attachSubmit.click(); });
+if (window.wl.onUiOpenAttach) window.wl.onUiOpenAttach(() => openAttach());
+els.figmaBtn.onclick = openFigma;
+els.fmClose.onclick = closeFigma;
+els.fmBackdrop.onclick = closeFigma;
+els.fmImport.onclick = async () => {
+  const url = els.fmUrl.value.trim();
+  if (!url) { els.fmStatus.textContent = 'Paste a Figma frame URL.'; return; }
+  els.fmImport.disabled = true;
+  els.fmStatus.textContent = 'importing…';
+  const r = await window.wl.figmaImport(url).catch((e) => ({ ok: false, error: e.message }));
+  els.fmImport.disabled = false;
+  if (!r || !r.ok) { els.fmStatus.textContent = '✗ ' + ((r && r.error) || 'import failed'); return; }
+  state.figma = { url, nodeId: r.nodeId, code: r.code || '', variables: r.variables || '' };
+  renderFigmaChip();
+  els.fmStatus.textContent = '✓ node ' + r.nodeId + (r.hasImage ? ' · screenshot added to References' : '');
+  els.fmResult.hidden = false;
+  els.fmMeta.textContent = 'tools: ' + (r.tools || []).join(', ');
+  els.fmCode.hidden = !(r.code || r.variables);
+  els.fmCode.textContent = (r.code || r.variables || '').slice(0, 6000);
+};
 
 function addSelectionMessage(s, live = true) {
   const empty = els.messages.querySelector('.empty');
@@ -399,12 +573,14 @@ window.wl.onPageNav((info) => {
   if (!state.settingsOpen && /^https?:/.test(state.pageUrl)) els.urlInput.value = state.pageUrl;
 });
 window.wl.onPageError(({ error }) => flashPageChip('load failed: ' + String(error).slice(0, 60)));
+if (window.wl.onRefsState) window.wl.onRefsState(applyRefs);
 window.wl.onDevStatus((dev) => {
   state.dev = dev;
   const project = dev.projectFolder || dev.folder;
   const projName = project ? String(project).split(/[\\/]/).filter(Boolean).pop() : '';
   els.devBadge.className = 'badge ' + (dev.state === 'running' ? 'ok' : dev.state === 'error' ? 'err' : '');
-  els.devBadge.textContent = 'server: ' + dev.state + (dev.pm ? ` (${dev.pm})` : '') + (projName && dev.state !== 'idle' ? ' · ' + projName : '') + (dev.sandbox ? ' · sandbox' : '') + (dev.external ? ' · attached' : '');
+  const tooling = [dev.pm, dev.framework && dev.framework.name].filter(Boolean).join(' · ');
+  els.devBadge.textContent = 'server: ' + dev.state + (tooling ? ` (${tooling})` : '') + (projName && dev.state !== 'idle' ? ' · ' + projName : '') + (dev.sandbox ? ' · sandbox' : '') + (dev.external ? ' · attached' : '');
   els.devBadge.title = project || dev.url || dev.error || '';
   els.openproj.hidden = dev.state !== 'idle'; // no "open project" affordance once you're inside one
   els.folderPath.textContent = project ? project + (dev.port ? `  ·  :${dev.port}` : '') : '—';
@@ -430,15 +606,24 @@ function bindProv(prov) {
   els.provBtns.forEach((b) => b.classList.toggle('on', b.dataset.prov === prov));
   els.cfFields.hidden = prov !== 'cloudflare';
   els.oaFields.hidden = prov !== 'openai';
+  els.localFields.hidden = prov !== 'local';
 }
 async function openSettings() {
+  if (state.connectorsOpen) { state.connectorsOpen = false; els.connectors.hidden = true; els.connectorForm.hidden = true; }
   state.settingsOpen = true;
   document.body.classList.add('settings-on');
+  // expand the overlay to the whole window BEFORE showing the card — otherwise the
+  // card is laid out inside the 52px pill view and visibly jumps when the view grows
+  if (window.wl.settingsModal) await window.wl.settingsModal(true).catch(() => {});
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   els.settings.hidden = false;
   const body = els.settings.querySelector('.drawer-body');
   if (body) body.scrollTop = 0;
-  // global modal: expands the overlay to the whole window and dims what's behind
-  if (window.wl.settingsModal) await window.wl.settingsModal(true).catch(() => {});
+  // local servers are cheap to probe — fill the model list the first time the drawer opens
+  if (state.settings && state.settings.provider === 'local') {
+    const dl = document.getElementById('local-models');
+    if (dl && !dl.querySelector('option')) refreshLocalModels(false);
+  }
 }
 function closeSettings() {
   closeCombo();
@@ -457,6 +642,9 @@ async function loadSettingsInto() {
   els.oaKey.value = s.openai.apiKey || '';
   els.oaBase.value = s.openai.baseUrl || '';
   els.oaModel.value = s.openai.model || '';
+  els.localBase.value = (s.local && s.local.baseUrl) || 'http://localhost:11434/v1';
+  els.localKey.value = (s.local && s.local.apiKey) || '';
+  els.localModel.value = (s.local && s.local.model) || '';
   els.sysPrompt.value = s.systemPrompt || '';
   els.editorCmd.value = s.editor || 'code';
   state.sandbox = s.sandbox !== false;
@@ -499,6 +687,279 @@ async function loadOpencodeLists() {
   els.ocNote.textContent = `✓ ${r.models.length} models · ${r.agents.length} agents loaded from your opencode install`;
   ocListsLoaded = true;
 }
+
+/* ---------- local models (Ollama · LM Studio · llama.cpp · vLLM) ---------- */
+async function refreshLocalModels(announce) {
+  const base = els.localBase.value.trim() || 'http://localhost:11434/v1';
+  if (announce) els.localStatus.textContent = 'looking for models…';
+  const r = await window.wl.localModels(base).catch((e) => ({ ok: false, error: e.message }));
+  if (!r || !r.ok) {
+    els.localStatus.textContent = '✗ ' + ((r && r.error) || 'no response') + ' — is the server running?';
+    return;
+  }
+  const dl = document.getElementById('local-models');
+  dl.innerHTML = '';
+  for (const m of (r.models || []).slice(0, 300)) {
+    const o = document.createElement('option');
+    o.value = m;
+    dl.appendChild(o);
+  }
+  if (!els.localModel.value && r.models && r.models.length) els.localModel.value = r.models[0];
+  els.localStatus.textContent = r.models && r.models.length
+    ? `✓ ${r.models.length} model${r.models.length === 1 ? '' : 's'} at ${r.base || base}`
+    : '✓ connected — no models installed yet';
+}
+els.localRefresh.onclick = () => refreshLocalModels(true);
+els.localPresets.forEach((b) => {
+  b.onclick = () => { els.localBase.value = b.dataset.url; refreshLocalModels(true); };
+});
+const stripServer = ({ status, tools, server, error, ...cfg }) => cfg;
+function showAuthWaiting(name, url) {
+  els.connectorAuth.hidden = false;
+  els.connectorAuth.textContent = '';
+  const label = document.createElement('span');
+  label.textContent = 'Waiting for sign-in to ' + (name || 'the connector') + ' in your browser… ';
+  els.connectorAuth.appendChild(label);
+  if (url) {
+    const open = document.createElement('button');
+    open.className = 'mini';
+    open.textContent = 'open link';
+    open.onclick = () => window.wl.openExternal(url).catch(() => {});
+    els.connectorAuth.appendChild(open);
+  }
+  if (/remote/i.test(name || '')) {
+    const hint = document.createElement('div');
+    hint.className = 'dim';
+    hint.textContent = 'If Figma says the remote MCP server is not enabled, this OAuth app is not an approved MCP client — use + Figma (local) instead.';
+    els.connectorAuth.appendChild(hint);
+  }
+}
+function hideAuth() {
+  els.connectorAuth.hidden = true;
+  els.connectorAuth.textContent = '';
+}
+async function refreshConnectors() {
+  hideAuth();
+  const st = await window.wl.mcpServers().catch(() => null);
+  state.connectors = (st && st.servers) || [];
+  renderConnectors();
+}
+function renderConnectors() {
+  els.connectorList.innerHTML = '';
+  els.connectorEmpty.hidden = state.connectors.length > 0;
+  for (const s of state.connectors) {
+    const row = document.createElement('div');
+    row.className = 'connector-row';
+    const main = document.createElement('div');
+    main.className = 'connector-main';
+    const name = document.createElement('span');
+    name.className = 'connector-name';
+    name.textContent = s.name;
+    const sub = document.createElement('span');
+    sub.className = 'connector-sub';
+    sub.textContent = s.transport === 'stdio'
+      ? [s.command, ...(s.args || [])].filter(Boolean).join(' ')
+      : (s.url || 'no url');
+    sub.title = sub.textContent;
+    main.append(name, sub);
+
+    const status = document.createElement('span');
+    status.className = 'connector-status' + (s.status === 'connected' ? ' ok' : s.status === 'error' ? ' err' : '');
+    status.textContent = s.status === 'connected' ? `connected · ${s.tools.length} tools`
+      : s.status === 'connecting' ? 'connecting…'
+      : s.status === 'auth' ? 'sign-in required'
+      : s.status === 'error' ? 'error'
+      : 'off';
+    status.title = s.error || '';
+
+    const connect = document.createElement('button');
+    connect.className = 'mini' + (s.status === 'connected' ? '' : ' strong');
+    connect.textContent = s.status === 'connected' ? 'disconnect'
+      : (s.oauth && !s.signedIn) ? 'sign in' : 'connect';
+    connect.onclick = async () => {
+      connect.disabled = true;
+      if (s.status === 'connected') {
+        await window.wl.mcpDisconnect(s.id).catch(() => {});
+      } else {
+        if (s.oauth) showAuthWaiting(s.name, '');
+        const r = await window.wl.mcpConnect(s.id).catch(() => null);
+        if (r && r.needPat) {
+          hideAuth();
+          await refreshConnectors();
+          openConnectorForm(state.connectors.find((x) => x.id === s.id));
+          els.cfStatus.textContent = r.error;
+          return;
+        }
+      }
+      await refreshConnectors();
+    };
+
+    const edit = document.createElement('button');
+    edit.className = 'mini';
+    edit.textContent = 'edit';
+    edit.onclick = () => openConnectorForm(s);
+
+    const del = document.createElement('button');
+    del.className = 'mini';
+    del.textContent = '×';
+    del.title = 'Delete this connector';
+    let armed = false;
+    del.onclick = async () => {
+      if (!armed) {
+        armed = true;
+        del.textContent = 'confirm';
+        del.classList.add('strong');
+        setTimeout(() => { armed = false; del.textContent = '×'; del.classList.remove('strong'); }, 2500);
+        return;
+      }
+      const servers = state.connectors.map(stripServer).filter((c) => c.id !== s.id);
+      const r = await window.wl.mcpSave(servers).catch(() => null);
+      if (r) state.connectors = r.servers || [];
+      renderConnectors();
+    };
+
+    row.append(main, status, connect, edit, del);
+    if (s.signedIn) {
+      const out = document.createElement('button');
+      out.className = 'mini';
+      out.textContent = 'sign out';
+      out.onclick = async () => { await window.wl.mcpSignOut(s.id).catch(() => {}); await refreshConnectors(); };
+      row.appendChild(out);
+    }
+    els.connectorList.appendChild(row);
+    if (s.error && s.status !== 'connected') {
+      const err = document.createElement('div');
+      err.className = 'connector-error';
+      err.textContent = s.error;
+      els.connectorList.appendChild(err);
+    }
+  }
+}
+function bindTransport(t) {
+  els.cfTransport.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+  els.cfHttp.hidden = t !== 'http';
+  els.cfStdio.hidden = t !== 'stdio';
+}
+function setConnectorEnabled(on) {
+  if (state.connectorDraft) state.connectorDraft.enabled = on;
+  els.cfEnabled.textContent = 'connect on launch: ' + (on ? 'on' : 'off');
+  els.cfEnabled.classList.toggle('on', on);
+}
+function setConnectorOAuth(on) {
+  if (state.connectorDraft) state.connectorDraft.oauth = on;
+  els.cfOauth.textContent = 'OAuth sign-in: ' + (on ? 'on' : 'off');
+  els.cfOauth.classList.toggle('on', on);
+  els.cfOauthWrap.hidden = !on;
+}
+function openConnectorForm(cfg) {
+  state.connectorEdit = cfg ? cfg.id : null;
+  state.connectorDraft = cfg ? { ...cfg } : { name: '', transport: 'http', url: '', command: '', args: [], enabled: false, oauth: false, pat: '', clientId: '', clientSecret: '', redirectUri: '', token: '' };
+  els.cfName.value = state.connectorDraft.name || '';
+  els.cfUrl.value = state.connectorDraft.url || '';
+  els.cfCommand.value = state.connectorDraft.command || '';
+  els.cfArgs.value = (state.connectorDraft.args || []).join(' ');
+  els.cfClientId.value = state.connectorDraft.clientId || '';
+  els.cfClientSecret.value = state.connectorDraft.clientSecret || '';
+  els.cfRedirect.value = state.connectorDraft.redirectUri || '';
+  els.cfPat.value = state.connectorDraft.pat || '';
+  els.cfToken.value = state.connectorDraft.token || '';
+  els.cfStatus.textContent = '';
+  bindTransport(state.connectorDraft.transport || 'http');
+  setConnectorEnabled(!!state.connectorDraft.enabled);
+  setConnectorOAuth(!!state.connectorDraft.oauth);
+  els.connectorForm.hidden = false;
+  els.cfName.focus();
+}
+els.cfTransport.querySelectorAll('button').forEach((b) => { b.onclick = () => bindTransport(b.dataset.t); });
+els.cfEnabled.onclick = () => setConnectorEnabled(!(state.connectorDraft && state.connectorDraft.enabled));
+els.cfOauth.onclick = () => setConnectorOAuth(!(state.connectorDraft && state.connectorDraft.oauth));
+els.connectorAdd.onclick = () => openConnectorForm(null);
+els.connectorFigmaLocal.onclick = async () => {
+  els.connectorFigmaLocal.disabled = true;
+  const r = await window.wl.mcpPresetFigmaLocal().catch(() => null);
+  els.connectorFigmaLocal.disabled = false;
+  if (!r || !r.ok) return;
+  await refreshConnectors();
+  await window.wl.mcpConnect(r.id).catch(() => null);
+  await refreshConnectors();
+};
+els.connectorFigmaRemote.onclick = () => {
+  els.connectorAuth.hidden = false;
+  els.connectorAuth.textContent = 'Remote Figma MCP is coming soon — Figma currently allows only approved MCP clients. Use + Figma (local) or the opencode agent for now.';
+};
+els.cfCancel.onclick = () => { els.connectorForm.hidden = true; state.connectorEdit = null; };
+els.cfSave.onclick = async () => {
+  const transport = (els.cfTransport.querySelector('button.on') || {}).dataset;
+  const t = transport && transport.t === 'stdio' ? 'stdio' : 'http';
+  const draft = {
+    id: state.connectorEdit || undefined,
+    name: els.cfName.value.trim(),
+    transport: t,
+    url: els.cfUrl.value.trim(),
+    command: els.cfCommand.value.trim(),
+    args: els.cfArgs.value.trim().split(/\s+/).filter(Boolean),
+    enabled: !!(state.connectorDraft && state.connectorDraft.enabled),
+    oauth: !!(state.connectorDraft && state.connectorDraft.oauth),
+    clientId: els.cfClientId.value.trim(),
+    clientSecret: els.cfClientSecret.value.trim(),
+    redirectUri: els.cfRedirect.value.trim(),
+    pat: els.cfPat.value.trim(),
+    token: els.cfToken.value.trim(),
+  };
+  if (!draft.name) { els.cfStatus.textContent = 'Give the connector a name.'; return; }
+  if (t === 'http' && !/^https?:\/\//i.test(draft.url)) { els.cfStatus.textContent = 'Enter an http(s) URL.'; return; }
+  if (t === 'stdio' && !draft.command) { els.cfStatus.textContent = 'Enter the command to run.'; return; }
+  const servers = state.connectors.map(stripServer);
+  if (state.connectorEdit) {
+    const i = servers.findIndex((s) => s.id === state.connectorEdit);
+    if (i >= 0) servers[i] = draft; else servers.push(draft);
+  } else {
+    servers.push(draft);
+  }
+  els.cfSave.disabled = true;
+  els.cfStatus.textContent = 'saving…';
+  const r = await window.wl.mcpSave(servers).catch(() => null);
+  els.cfSave.disabled = false;
+  if (!r) { els.cfStatus.textContent = 'Could not save the connector.'; return; }
+  els.cfStatus.textContent = '';
+  state.connectors = r.servers || [];
+  els.connectorForm.hidden = true;
+  state.connectorEdit = null;
+  renderConnectors();
+  if (draft.token || draft.oauth) {
+    const srv = state.connectors.find((x) => x.name === draft.name);
+    if (srv) {
+      await window.wl.mcpConnect(srv.id).catch(() => null);
+      await refreshConnectors();
+    }
+  }
+};
+async function openConnectors() {
+  if (state.settingsOpen) { state.settingsOpen = false; els.settings.hidden = true; }
+  closeFigma();
+  closeHistoryModal();
+  state.connectorsOpen = true;
+  document.body.classList.add('settings-on');
+  if (window.wl.settingsModal) await window.wl.settingsModal(true).catch(() => {});
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  els.connectors.hidden = false;
+  els.connectorForm.hidden = true;
+  await refreshConnectors();
+}
+function closeConnectors() {
+  state.connectorsOpen = false;
+  els.connectors.hidden = true;
+  els.connectorForm.hidden = true;
+  document.body.classList.remove('settings-on');
+  if (window.wl.settingsModal) window.wl.settingsModal(false).catch(() => {});
+}
+els.connectorsClose.onclick = closeConnectors;
+els.connectorsBackdrop.onclick = closeConnectors;
+if (window.wl.onUiOpenConnectors) window.wl.onUiOpenConnectors(() => openConnectors());
+if (window.wl.onMcpAuthUrl) window.wl.onMcpAuthUrl(({ id, url }) => {
+  const s = state.connectors.find((x) => x.id === id);
+  showAuthWaiting(s ? s.name : id, url);
+});
 function collectSettings() {
   const s = state.settings || {};
   const agentBtn = document.querySelector('#agent-seg button.on');
@@ -510,6 +971,7 @@ function collectSettings() {
     provider: provBtn ? provBtn.dataset.prov : 'cloudflare',
     cloudflare: { accountId: els.cfAccount.value.trim(), token: els.cfToken.value.trim(), model: els.cfModel.value.trim() },
     openai: { apiKey: els.oaKey.value.trim(), baseUrl: els.oaBase.value.trim(), model: els.oaModel.value.trim() },
+    local: { baseUrl: els.localBase.value.trim(), apiKey: els.localKey.value.trim(), model: els.localModel.value.trim() },
     systemPrompt: els.sysPrompt.value,
     editor: els.editorCmd.value.trim(),
     sandbox: state.sandbox !== false,
@@ -521,8 +983,24 @@ function updateModelBadge() {
   if (!s) return;
   els.modelBadge.textContent = s.agent === 'opencode'
     ? 'opencode · ' + ((s.opencode && s.opencode.model) || 'default model') + ((s.opencode && s.opencode.agent) ? ' · ' + s.opencode.agent : '')
-    : (s.provider === 'openai' ? 'openai · ' + s.openai.model : 'cloudflare · ' + s.cloudflare.model);
+    : s.provider === 'local'
+      ? 'local · ' + ((s.local && s.local.model) || 'no model')
+      : (s.provider === 'openai' ? 'openai · ' + s.openai.model : 'cloudflare · ' + s.cloudflare.model);
   els.modelBadge.title = els.modelBadge.textContent;
+}
+async function renderAppInfo() {
+  if (!els.appInfo || !window.wl.appInfo) return;
+  const info = await window.wl.appInfo().catch(() => null);
+  if (!info) return;
+  els.appInfo.innerHTML = '';
+  const left = document.createElement('span');
+  left.textContent = 'withlook v' + info.version + ' · Beta';
+  const right = document.createElement('button');
+  right.type = 'button';
+  right.textContent = 'releases ↗';
+  right.title = info.releases || 'GitHub releases';
+  right.onclick = () => { if (window.wl.openReleases) window.wl.openReleases(); };
+  els.appInfo.append(left, right);
 }
 
 /* ---------- comboboxes (model / agent pickers) ---------- */
@@ -869,6 +1347,18 @@ els.stopServer.onclick = () => window.wl.stopDev();
 els.messages.addEventListener('click', async (e) => {
   const stopGen = e.target.closest('.stop-gen');
   if (stopGen) { if (state.streamId) window.wl.stopChat(state.streamId); return; }
+  const patchBtn = e.target.closest('.rp-action');
+  if (patchBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    const mode = patchBtn.dataset.patch;
+    patchBtn.disabled = true;
+    const r = await window.wl.gitSharePatch(mode).catch(() => null);
+    patchBtn.disabled = false;
+    patchBtn.textContent = r && r.ok ? (mode === 'copy' ? 'copied ✓' : 'saved ✓') : 'failed';
+    if (r && r.ok && mode === 'save') flashPageChip('patch saved');
+    return;
+  }
   const rpRow = e.target.closest('.rp-row');
   if (rpRow) {
     const pre = rpRow.nextElementSibling;
@@ -886,6 +1376,8 @@ els.messages.addEventListener('click', async (e) => {
   }
   const btn = e.target.closest('.apply-file');
   if (!btn || btn.disabled) return;
+  e.preventDefault();
+  e.stopPropagation();
   const block = btn.closest('.fileblock');
   const code = block.querySelector('pre code').textContent;
   btn.textContent = 'saving…';
@@ -916,17 +1408,29 @@ window.wl.onUiLoadSession(async (id) => {
   const data = await window.wl.sessionsLoad(id);
   if (data) { restoreSession(data); if (!state.panelOpen) setPanel(true); }
 });
-window.wl.onUiFocusChat(() => { els.quick.focus(); if (!state.panelOpen) setPanel(true); });
-window.wl.onUiTogglePanel(() => setPanel(!state.panelOpen));
+window.wl.onUiFocusChat(() => {
+  if (state.home || !state.dev || state.dev.state !== 'running') return;
+  els.quick.focus();
+  if (!state.panelOpen) setPanel(true);
+});
+window.wl.onUiTogglePanel(() => {
+  if (state.home || !state.dev || state.dev.state !== 'running') return;
+  setPanel(!state.panelOpen);
+});
 
 document.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
-  if (mod && (e.key === 'e' || e.key === 'E')) { e.preventDefault(); els.pick.click(); }
-  if (mod && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); els.quick.focus(); }
-  if (mod && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); uiToggleFloat(); }
-  if (mod && (e.key === 'j' || e.key === 'J')) { e.preventDefault(); setPanel(!state.panelOpen); }
+  const live = !state.home && !!state.dev && state.dev.state === 'running';
+  if (live && mod && (e.key === 'e' || e.key === 'E')) { e.preventDefault(); els.pick.click(); }
+  if (live && mod && e.shiftKey && (e.key === 'v' || e.key === 'V')) { e.preventDefault(); if (window.wl.pasteRef) window.wl.pasteRef(); }
+  if (live && mod && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); els.quick.focus(); }
+  if (live && mod && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); uiToggleFloat(); }
+  if (live && mod && (e.key === 'j' || e.key === 'J')) { e.preventDefault(); setPanel(!state.panelOpen); }
   if (e.key === 'Escape') {
     if (state.streaming) window.wl.stopChat(state.streamId);
+    else if (state.attachOpen) closeAttach();
+    else if (!els.connectors.hidden) closeConnectors();
+    else if (!els.figmaModal.hidden) closeFigma();
     else if (!els.historyModal.hidden) closeHistoryModal();
     else if (state.picking) window.wl.cancelPicker();
     else if (!els.quickMenu.hidden) toggleQuickMenu(false);
@@ -938,6 +1442,8 @@ document.addEventListener('keydown', (e) => {
 /* ---------- boot ---------- */
 (async () => {
   await loadSettingsInto();
+  renderAppInfo();
+  if (window.wl.refsState) window.wl.refsState().then(applyRefs).catch(() => {});
   const st = await window.wl.storeStatus();
   els.memStatus.textContent = st.mode === 'postgres'
     ? '✓ connected — projects & chats are stored in Postgres'

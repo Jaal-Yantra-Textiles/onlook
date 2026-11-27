@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 
-const SKIP = new Set(['node_modules', '.next', '.git', 'dist', 'build', 'out', '.turbo', '.vercel', '.cache']);
+const SKIP = new Set(['node_modules', '.next', '.git', 'dist', 'build', 'out', '.turbo', '.vercel', '.cache', 'withlook-references']);
 const ENV_RE = /^\.env(\..+)?$/;
 const MAX_UNTRACKED = 500;
 
@@ -54,6 +54,7 @@ function statusEntries(gitDir) {
     if (status[0] === 'R' || status[0] === 'C') i++; // skip rename origin
     if (!file) continue;
     if (status === '??' && ENV_RE.test(path.basename(file))) continue; // secrets stay out of reports/cleanup
+    if (file.split('/').includes('withlook-references')) continue; // agent-only reference copies
     out.push({ status, file });
   }
   return out;

@@ -18,6 +18,9 @@ app.whenReady().then(() => {
   const modalCalls = [];
   let panelCalls = 0;
   ipcMain.handle('settings:get', () => settings);
+  ipcMain.handle('app:info', () => ({ version: '0.0.0-test', releases: '' }));
+  ipcMain.handle('refs:list', () => ({ items: [], open: false, full: false, project: null }));
+  ipcMain.handle('mcp:status', () => ({ status: 'disconnected', url: '', tools: [], server: null, error: null }));
   ipcMain.handle('store:status', () => ({ mode: 'file' }));
   ipcMain.handle('projects:list', () => []);
   ipcMain.handle('dev:status', () => ({ state: 'idle', folder: null, pm: null, port: null, url: null, error: null, external: false }));
@@ -39,13 +42,13 @@ app.whenReady().then(() => {
     await new Promise((r) => setTimeout(r, 350));
     const open = await win.webContents.executeJavaScript(`
       (() => {
-        const card = document.querySelector('.settings-card');
+        const card = document.querySelector('#settings .settings-card');
         const r = card.getBoundingClientRect();
         return {
           modalOpen: !document.querySelector('#settings').hidden,
           bodyClass: document.body.classList.contains('settings-on'),
           pillHidden: getComputedStyle(document.querySelector('#pill')).display === 'none',
-          backdrop: !!document.querySelector('.settings-backdrop'),
+          backdrop: !!document.querySelector('#settings .settings-backdrop'),
           centeredX: Math.abs((r.left + r.width / 2) - window.innerWidth / 2) < 4,
           centeredY: Math.abs((r.top + r.height / 2) - window.innerHeight / 2) < 4,
           cardW: Math.round(r.width),
