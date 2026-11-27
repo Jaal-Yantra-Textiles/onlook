@@ -965,6 +965,8 @@ async function findExistingDevServer(folder, ports) {
 }
 function attachDevServer(port, folder) {
   projectLoaded = false;
+  devState.folder = folder;
+  devState.projectFolder = folder;
   if (tabs[0]) tabs[0].route = '/';
   pushDevLog(`withlook: found a dev server already running for this project on :${port} — attaching`);
   markServerReady(port, { external: true });
@@ -1142,6 +1144,7 @@ async function startDev(folder) {
   if (tabs[0]) tabs[0].route = '/'; // a new project always starts at its root, never the previous route
   const settings = loadSettings();
   devState.projectFolder = folder;
+  devState.folder = folder;
   if (refsStore) {
     refsStore.setProject(folder);
     refsOpen = refsStore.items.length > 0;
@@ -1651,7 +1654,7 @@ async function handleChatSend(_e, { id, messages, context }) {
 
   // ---- opencode agent: a local coding agent edits the repo directly ----
   if (settings.agent === 'opencode') {
-    const folder = devState.folder;
+    const folder = devState.folder || devState.projectFolder;
     if (!folder) { overlaySend('chat:error', { id, error: 'Open a project first — opencode runs inside it.' }); return; }
     const oc = settings.opencode || {};
     const args = ['run', '--auto', '--format', 'json'];
