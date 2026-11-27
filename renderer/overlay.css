@@ -134,6 +134,7 @@ button { -webkit-app-region: no-drag; }
 .oc-turn { font-family: ui-monospace, Menlo, monospace; font-size: 10px; font-weight: 600; color: #5ce1c7; padding: 2px 0; margin-top: 7px; }
 .oc-turn:first-child { margin-top: 0; }
 .oc-tool { font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: #6b7588; padding: 1px 0 1px 12px; }
+.oc-status { font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: #8a94a6; padding: 2px 0 2px 12px; }
 .oc-tools { margin: 5px 0; }
 .oc-tools summary { cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: #71717a;
   padding: 2px 0; list-style: none; user-select: none; }

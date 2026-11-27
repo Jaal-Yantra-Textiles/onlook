@@ -306,8 +306,13 @@ function finishStream(ok) {
 }
 window.wl.onChatChunk(({ id, delta, kind, edit }) => {
   if (id !== state.streamId) return;
-  if (kind === 'turn' || kind === 'tool' || kind === 'edit' || kind === 'report') state.activity.push({ kind, text: String(delta).replace(/\n+$/, ''), edit });
-  else state.assistantBuf += delta;
+  const text = String(delta).replace(/\n+$/, '');
+  if (kind === 'turn' || kind === 'tool' || kind === 'edit' || kind === 'report' || kind === 'status') {
+    const last = state.activity[state.activity.length - 1];
+    if (!(kind === 'status' && last && last.kind === 'status' && last.text === text)) {
+      state.activity.push({ kind, text, edit });
+    }
+  } else state.assistantBuf += delta;
   renderAssistant();
   scrollBottom();
 });

@@ -1632,7 +1632,14 @@ async function handleChatSend(_e, { id, messages, context }) {
         if (!line) continue;
         let j = null;
         try { j = JSON.parse(line); } catch {}
-        if (!j || !j.part) { overlaySend('chat:chunk', { id, delta: stripAnsi(line) + '\n', kind: 'text' }); continue; }
+        if (!j) { overlaySend('chat:chunk', { id, delta: stripAnsi(line) + '\n', kind: 'text' }); continue; }
+        if (j.type === 'background_wait') {
+          const jobs = Array.isArray(j.jobs) ? j.jobs : [];
+          const what = jobs.map((x) => x && (x.title || x.id)).filter(Boolean).join(' · ');
+          overlaySend('chat:chunk', { id, kind: 'status', delta: 'background · ' + String(what || 'waiting').slice(0, 160) });
+          continue;
+        }
+        if (!j.part) { pushDevLog('opencode: ' + stripAnsi(line).slice(0, 300)); continue; }
         if (j.type === 'text' && j.part.text) {
           const pid = j.part.id || 'text';
           const prev = textParts.get(pid) || '';
