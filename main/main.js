@@ -59,6 +59,7 @@ const cardSig = new Map(); // id → last rendered signature
 let refsSaveTimer = null;
 const mcpClients = new Map(); // id → { client, status, tools, serverInfo, error }
 let devWait = null; // port-poll timeout guard
+let lastLockRetry = 0; // throttle the stale-lock restart loop
 let createProc = null; // active create-next-app scaffold
 let createCancelled = false;
 let devState = { state: 'idle', folder: null, projectFolder: null, sandbox: null, pm: null, framework: null, scaffold: false, port: null, url: null, error: null, external: false };
@@ -968,8 +969,6 @@ async function findExistingDevServer(folder, ports) {
     for (let p = 3000; p <= 3012; p++) a.push(p);
     return a;
   })();
-  const base = path.basename(folder);
-  const suffix = path.join(path.basename(path.dirname(folder)), base);
   for (const port of scanPorts) {
     const pids = await sh('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
     if (!pids) continue;
@@ -979,12 +978,7 @@ async function findExistingDevServer(folder, ports) {
       const cwd = m ? m[1].trim() : '';
       const cmd = await sh('ps', ['-o', 'command=', '-p', pid]);
       const cmdMatch = !!cmd && cmd.includes(folder);
-      // a sandbox worktree for this project also counts as "already running"
-      const seg = cwd ? cwd.split(path.sep).pop() : '';
-      const sandboxMatch = !!cwd && cwd.includes(`${path.sep}worktrees${path.sep}`) && (
-        cwd.endsWith(path.sep + suffix) || seg.startsWith(base + '-')
-      );
-      const cwdMatch = !!cwd && (cwd === folder || cwd.startsWith(folder + path.sep) || folder.startsWith(cwd + path.sep) || sandboxMatch);
+      const cwdMatch = !!cwd && (cwd === folder || cwd.startsWith(folder + path.sep) || folder.startsWith(cwd + path.sep));
       if (cwdMatch || cmdMatch) {
         try {
           await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(2500) });
@@ -1002,12 +996,23 @@ async function findListener(ports) {
     if (!pid) continue;
     const cwdOut = await sh('lsof', ['-p', pid, '-a', '-d', 'cwd', '-Fn']);
     const m = cwdOut ? cwdOut.match(/\nn(.+)/) : null;
+    const pgidOut = await sh('ps', ['-o', 'pgid=', '-p', pid]);
     try {
       await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(2000) });
-      return { port, pid, cwd: m ? m[1].trim() : '' };
+      return { port, pid: Number(pid), pgid: Number((pgidOut || '').trim()) || 0, cwd: m ? m[1].trim() : '' };
     } catch {}
   }
   return null;
+}
+function isSandboxCwd(cwd) {
+  const base = path.join(app.getPath('userData'), 'worktrees') + path.sep;
+  return !!cwd && cwd.startsWith(base);
+}
+async function stopListener(info) {
+  if (!info) return;
+  try { if (info.pgid) process.kill(-info.pgid, 'SIGTERM'); } catch {}
+  try { process.kill(info.pid, 'SIGTERM'); } catch {}
+  await sleep(700);
 }
 function attachDevServer(port, folder) {
   projectLoaded = false;
@@ -1209,9 +1214,15 @@ async function startDev(folder) {
   // something is already listening on the project's port (a 500 response still means it is up)
   const busy = await findListener(frameworks.portsFor(folder));
   if (busy) {
-    pushDevLog(`withlook: :${busy.port} is already in use — attaching instead of starting another server`);
-    await attachDevServerUrl(String(busy.port), folder);
-    return;
+    if (isSandboxCwd(busy.cwd)) {
+      // a sandbox server from a previous run may not have the latest files — start fresh
+      pushDevLog(`withlook: stopping a stale sandbox server on :${busy.port}`);
+      await stopListener(busy);
+    } else {
+      pushDevLog(`withlook: :${busy.port} is already in use — attaching instead of starting another server`);
+      await attachDevServerUrl(String(busy.port), folder);
+      return;
+    }
   }
   let runFolder = folder;
   const sandboxBase = () => path.join(app.getPath('userData'), 'worktrees');
@@ -1313,8 +1324,9 @@ async function startDev(folder) {
           for (let i = 0; i < 6 && !live; i++) { await sleep(800); live = await findExistingDevServer(folder, frameworks.portsFor(folder)); }
         }
         if (live) { attachDevServer(live, folder); return; }
-        if (!lockRetryDone) {
+        if (!lockRetryDone && Date.now() - lastLockRetry > 15000) {
           lockRetryDone = true;
+          lastLockRetry = Date.now();
           try {
             fs.rmSync(path.join(folder, '.next', 'dev', 'lock'), { force: true });
             pushDevLog('withlook: no live server found — removed the stale next dev lock, retrying…');
@@ -1338,13 +1350,17 @@ async function startDev(folder) {
   });
   devWait = setTimeout(() => {
     devWait = null;
-    if (devProc === proc && !portFound) { portFound = true; waitForPort(fw.ports[0] || 3000, proc); }
+    if (devProc === proc && !portFound) {
+      portFound = true;
+      const guess = frameworks.scriptPorts(runFolder)[0] || fw.ports[0] || 3000;
+      waitForPort(guess, proc);
+    }
   }, 25000);
 }
 async function waitForPort(port, proc) {
   const healthUrls = [`http://127.0.0.1:${port}`, `http://localhost:${port}`]; // covers IPv4-only and IPv6/localhost binds
   const localUrl = `http://localhost:${port}`;
-  const deadline = Date.now() + 90000;
+  const deadline = Date.now() + 180000;
   let lastNote = 0;
   pushDevLog(`withlook: waiting for ${localUrl} …`);
   while (Date.now() < deadline) {
@@ -1355,8 +1371,9 @@ async function waitForPort(port, proc) {
       if (devProc !== proc) return;
     }
     try {
-      if (res && res.status < 500) {
+      if (res) {
         if (devProc !== proc) return;
+        if (res.status >= 500) pushDevLog(`withlook: server responded ${res.status} — loading the page to show the error`);
         markServerReady(port);
         return;
       }

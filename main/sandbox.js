@@ -42,7 +42,7 @@ function linkNodeModules(srcDir, destDir) {
   } catch {}
 }
 function statusEntries(gitDir) {
-  const st = runSync('git', ['-C', gitDir, 'status', '--porcelain=v1', '-z']);
+  const st = runSync('git', ['-C', gitDir, 'status', '--porcelain=v1', '-z', '--untracked-files=all']);
   if (!st.ok) return [];
   const out = [];
   const parts = st.stdout.split('\0');
