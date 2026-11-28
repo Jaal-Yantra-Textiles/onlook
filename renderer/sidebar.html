@@ -172,6 +172,7 @@
         const project = d.projectFolder || d.folder;
         $('proj').textContent = project ? String(project).split(/[\\/]/).filter(Boolean).pop() : 'project';
         $('srv').innerHTML = 'server <b>' + d.state + '</b>' + (d.port ? ' · :' + d.port : '');
+        $('srv').title = d.error || '';
         $('sb-note').hidden = !d.sandbox;
         if (d.sandbox) $('sb-note').title = d.sandbox.projectPath || d.sandbox.root || '';
         if (d.state === 'running') { refreshChats(); refreshPages(); refreshGit(); setTimeout(refreshPages, 400); }

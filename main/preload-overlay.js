@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld('wl', {
   onPickerState: (cb) => on('picker:state', cb),
   onDevStatus: (cb) => on('dev:status', cb),
   onDevLog: (cb) => on('dev:log', cb),
+  onLoaderError: (cb) => on('loader:error', cb),
+  onLoaderClear: (cb) => on('loader:clear', cb),
   onPageNav: (cb) => on('page:nav', cb),
   onPageError: (cb) => on('page:error', cb),
   onUiOpenSettings: (cb) => on('ui:openSettings', cb),

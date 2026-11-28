@@ -14,10 +14,35 @@
     #label { min-width: 130px; transition: opacity 160ms ease; }
     #label.fade { opacity: 0; }
     .dots { color: var(--wl-text-dim); }
+    #err { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .err-card {
+      width: min(760px, 100%); max-height: min(78vh, 640px); display: flex; flex-direction: column;
+      background: var(--wl-bg); border: 1px solid var(--wl-red-line); border-radius: 14px;
+      box-shadow: var(--wl-shadow-lg); overflow: hidden;
+    }
+    .err-title { padding: 14px 18px; font-weight: 650; font-size: 13.5px; color: var(--wl-red-text); border-bottom: 1px solid var(--wl-line); }
+    .err-msg { padding: 12px 18px 0; font-size: 12px; color: var(--wl-text); white-space: pre-wrap; word-break: break-word; }
+    .err-logs {
+      margin: 12px 18px; padding: 10px 12px; background: var(--wl-code); border: 1px solid var(--wl-line-soft);
+      border-radius: 9px; font-family: var(--wl-mono); font-size: 10.5px; line-height: 1.5; color: var(--wl-text-2);
+      overflow: auto; flex: 1; min-height: 90px; white-space: pre-wrap; word-break: break-word;
+    }
+    .err-actions { display: flex; gap: 8px; padding: 0 18px 16px; }
   </style>
 </head>
 <body>
-  <div class="wl-card card"><span class="wl-spinner"></span><span id="label">loading</span><span class="dots">…</span></div>
+  <div class="wl-card card" id="spin-card"><span class="wl-spinner"></span><span id="label">loading</span><span class="dots">…</span></div>
+  <div id="err" hidden>
+    <div class="err-card">
+      <div class="err-title">Dev server failed to start</div>
+      <div class="err-msg" id="err-msg"></div>
+      <pre class="err-logs" id="err-logs"></pre>
+      <div class="err-actions">
+        <button id="err-retry" class="wl-btn primary">retry</button>
+        <button id="err-copy" class="wl-btn">copy logs</button>
+      </div>
+    </div>
+  </div>
   <script>
     const WORDS = [
       'loading', 'compiling', 'designing', 'warming the canvas', 'arranging pixels',
@@ -25,10 +50,11 @@
       'tidying components', 'spinning up', 'thinking in layouts'
     ];
     let i = 0;
+    let timer = null;
     const el = () => document.getElementById('label');
     window.__setLabel = (t) => { const e = el(); if (e) e.textContent = t; };
-    window.addEventListener('DOMContentLoaded', () => {
-      setInterval(() => {
+    function startWords() {
+      timer = setInterval(() => {
         const e = el();
         if (!e) return;
         e.classList.add('fade');
@@ -38,6 +64,29 @@
           e.classList.remove('fade');
         }, 170);
       }, 1700);
+    }
+    function showError(d) {
+      if (timer) { clearInterval(timer); timer = null; }
+      document.getElementById('spin-card').hidden = true;
+      document.getElementById('err').hidden = false;
+      document.getElementById('err-msg').textContent = (d && d.error) || 'The dev server failed to start.';
+      const logs = (d && d.logs) || [];
+      document.getElementById('err-logs').textContent = logs.length ? logs.join('\n') : '(no server logs)';
+    }
+    function clearError() {
+      document.getElementById('err').hidden = true;
+      document.getElementById('spin-card').hidden = false;
+      if (!timer) startWords();
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+      startWords();
+      if (window.wl && window.wl.onLoaderError) window.wl.onLoaderError(showError);
+      if (window.wl && window.wl.onLoaderClear) window.wl.onLoaderClear(clearError);
+      document.getElementById('err-retry').onclick = () => { if (window.wl && window.wl.restartDev) window.wl.restartDev(); };
+      document.getElementById('err-copy').onclick = () => {
+        const t = document.getElementById('err-logs').textContent || '';
+        if (navigator.clipboard) navigator.clipboard.writeText(t).catch(() => {});
+      };
     });
   </script>
 </body>

@@ -149,6 +149,7 @@
         if (loading) {
           const label = document.createElement('span');
           label.className = 'loading-label';
+          label.title = state.error || '';
           const sp = document.createElement('span');
           sp.className = 'wl-spinner';
           label.appendChild(sp);

@@ -127,6 +127,7 @@ let loaderView = null;
 let activeLoading = false;
 let projectLoaded = false; // the first page finished loading after the server came up
 let loaderVisible = false; // mirrors loaderView visibility for tests/telemetry
+let lastLoaderSig = '';
 let overlayVisible = false; // mirrors overlayView visibility for tests/telemetry
 const SIDEBAR_W = 232;
 const CANVAS_FIT_MARGIN = 48; // Onlook's FIT_MARGIN
@@ -541,6 +542,7 @@ function broadcastTabs() {
     tabs: tabs.map((t) => t.route), active: activeTab, home: homeMode, sidebar: !sidebarHidden, chat: !chatHidden,
     ready: devState.state === 'running' && projectLoaded,
     phase: devState.state,
+    error: devState.error || null,
     sandbox: devState.sandbox ? { mode: devState.sandbox.mode, project: path.basename(devState.sandbox.folder) } : null,
   };
   if (tabbarView && !tabbarView.webContents.isDestroyed()) tabbarView.webContents.send('tabs:state', state);
@@ -632,6 +634,12 @@ function attachLoading(wc, isActive) {
   wc.on('did-finish-load', () => { if (isActive() && devState.state === 'running') { projectLoaded = true; broadcastTabs(); } });
   wc.on('did-fail-load', () => { if (isActive()) { projectLoaded = false; broadcastTabs(); } });
 }
+function errorLogs() {
+  const lines = devLogs.slice(-80);
+  const hot = lines.filter((l) => /error|⨯|failed|EADDRINUSE|Module not found|SyntaxError|Cannot find|TypeError|ReferenceError/i.test(l));
+  const pick = hot.length ? [...new Set([...hot, ...lines.slice(-12)])] : lines.slice(-40);
+  return pick.slice(-40);
+}
 function applyLoader() {
   if (!loaderView || !win) return;
   const a = previewArea();
@@ -639,8 +647,24 @@ function applyLoader() {
     loaderView.setBounds({ x: a.x, y: a.y, width: a.w, height: a.h });
     // show during startup and any in-flight page load — but not over the scaffold form
     const scaffolding = devState.state === 'starting' && devState.scaffold;
-    loaderVisible = pageInMain && !homeMode && ((devState.state === 'starting' && !scaffolding) || (devState.state === 'running' && activeLoading));
+    const isError = devState.state === 'error';
+    loaderVisible = pageInMain && !homeMode && (
+      (devState.state === 'starting' && !scaffolding) ||
+      (devState.state === 'running' && activeLoading) ||
+      isError
+    );
     loaderView.setVisible(loaderVisible);
+    if (isError) {
+      const logs = errorLogs();
+      const sig = (devState.error || '') + '|' + logs.join('\n');
+      if (sig !== lastLoaderSig) {
+        lastLoaderSig = sig;
+        try { loaderView.webContents.send('loader:error', { error: devState.error || 'The dev server failed to start.', logs }); } catch {}
+      }
+    } else if (lastLoaderSig) {
+      lastLoaderSig = '';
+      try { loaderView.webContents.send('loader:clear', {}); } catch {}
+    }
   } catch {}
 }
 function applyCanvas() {
@@ -1117,6 +1141,7 @@ function pushDevLog(line) {
   devLogs.push(l);
   if (devLogs.length > 400) devLogs.shift();
   overlaySend('dev:log', l);
+  if (devState.state === 'error') applyLoader();
 }
 function setDevStatus(patch) {
   devState = { ...devState, ...patch };
@@ -2090,6 +2115,7 @@ function createWindow() {
   tabbarView.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'tabbar.html')).catch(() => {});
   tabbarView.webContents.on('did-finish-load', () => broadcastTabs());
   loaderView.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'loader.html')).catch(() => {});
+  loaderView.webContents.on('did-finish-load', () => { if (devState.state === 'error') { lastLoaderSig = ''; applyLoader(); } });
 
   const wc = pageView.webContents;
   wc.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
