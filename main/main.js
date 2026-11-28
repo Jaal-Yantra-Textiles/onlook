@@ -944,6 +944,8 @@ async function findExistingDevServer(folder, ports) {
     for (let p = 3000; p <= 3012; p++) a.push(p);
     return a;
   })();
+  const base = path.basename(folder);
+  const suffix = path.join(path.basename(path.dirname(folder)), base);
   for (const port of scanPorts) {
     const pids = await sh('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
     if (!pids) continue;
@@ -953,14 +955,33 @@ async function findExistingDevServer(folder, ports) {
       const cwd = m ? m[1].trim() : '';
       const cmd = await sh('ps', ['-o', 'command=', '-p', pid]);
       const cmdMatch = !!cmd && cmd.includes(folder);
-      const cwdMatch = !!cwd && (cwd === folder || cwd.startsWith(folder + path.sep) || folder.startsWith(cwd + path.sep));
+      // a sandbox worktree for this project also counts as "already running"
+      const seg = cwd ? cwd.split(path.sep).pop() : '';
+      const sandboxMatch = !!cwd && cwd.includes(`${path.sep}worktrees${path.sep}`) && (
+        cwd.endsWith(path.sep + suffix) || seg.startsWith(base + '-')
+      );
+      const cwdMatch = !!cwd && (cwd === folder || cwd.startsWith(folder + path.sep) || folder.startsWith(cwd + path.sep) || sandboxMatch);
       if (cwdMatch || cmdMatch) {
         try {
-          const r = await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(2500) });
-          if (r.status < 500) return port;
+          await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(2500) });
+          return port;
         } catch {}
       }
     }
+  }
+  return null;
+}
+async function findListener(ports) {
+  for (const port of ports) {
+    const pids = await sh('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
+    const pid = pids && pids.split('\n').filter(Boolean)[0];
+    if (!pid) continue;
+    const cwdOut = await sh('lsof', ['-p', pid, '-a', '-d', 'cwd', '-Fn']);
+    const m = cwdOut ? cwdOut.match(/\nn(.+)/) : null;
+    try {
+      await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(2000) });
+      return { port, pid, cwd: m ? m[1].trim() : '' };
+    } catch {}
   }
   return null;
 }
@@ -1158,6 +1179,13 @@ async function startDev(folder) {
     const fw0 = frameworks.detectFramework(folder);
     devState.framework = { id: fw0.id, name: fw0.name };
     attachDevServer(early, folder);
+    return;
+  }
+  // something is already listening on the project's port (a 500 response still means it is up)
+  const busy = await findListener(frameworks.portsFor(folder));
+  if (busy) {
+    pushDevLog(`withlook: :${busy.port} is already in use — attaching instead of starting another server`);
+    await attachDevServerUrl(String(busy.port), folder);
     return;
   }
   let runFolder = folder;
