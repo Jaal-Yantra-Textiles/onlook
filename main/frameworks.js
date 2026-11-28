@@ -166,7 +166,7 @@ function portsFor(folder) {
   const fw = detectFramework(folder);
   const fallback = [];
   for (let p = 3000; p <= 3012; p++) fallback.push(p); // Next's usual range, plus common overrides
-  return [...new Set([...fw.ports, ...scriptPorts(folder), ...fallback])];
+  return [...new Set([...scriptPorts(folder), ...fw.ports, ...fallback])];
 }
 
 async function listRoutes(folder) {
